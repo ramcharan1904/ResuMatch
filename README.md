@@ -217,7 +217,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 AI Engineer | MS Data Science @ UAB | AWS Certified
 
-- 🌐 [Portfolio](https://your-portfolio-url.com)
+- 🌐 [Portfolio](https://ram-portfolio-theta.vercel.app/)
 - 💼 [LinkedIn](https://linkedin.com/in/ramcharangubbala)
 - 🐙 [GitHub](https://github.com/ramcharan1904)
 - 📧 ramcharangubbala7@gmail.com
