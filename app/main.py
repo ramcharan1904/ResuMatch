@@ -4,7 +4,6 @@ import tempfile
 
 import streamlit as st
 from dotenv import load_dotenv
-
 from job_scraper import extract_job_description
 from resume_editor import edit_resume
 from resume_exporter import export_docx
@@ -100,7 +99,9 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
                 st.session_state.jd_keywords,
             )
         except Exception:
-            st.error("We couldn't score or tailor your resume right now. Please try again in a moment.")
+            st.error(
+                "We couldn't score or tailor your resume right now. Please try again in a moment."
+            )
             st.stop()
 
         st.success("Resume successfully tailored to the job description!")

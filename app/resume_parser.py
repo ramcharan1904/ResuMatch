@@ -1,5 +1,6 @@
-import pdfplumber
 import docx
+import pdfplumber
+
 
 def parse_pdf(file_path):
     with pdfplumber.open(file_path) as pdf:

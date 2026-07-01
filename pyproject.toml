@@ -5,9 +5,15 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# The LLM prompt template is natural-language content, not code — wrapping it would
+# make the actual prompt harder to read without any real benefit.
+"app/resume_editor.py" = ["E501"]
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["app"]

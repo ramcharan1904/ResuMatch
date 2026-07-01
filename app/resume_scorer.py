@@ -1,6 +1,5 @@
 import numpy as np
 from openai import OpenAI
-
 from retry import with_backoff
 from skill_matcher import match_keywords
 

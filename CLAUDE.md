@@ -264,9 +264,13 @@ pinned: false
   `with_backoff` decorator wraps every OpenAI call site (`get_embedding`, `extract_keywords`,
   `edit_resume`) with exponential-backoff retry on 429s; `main.py` wraps the scoring/tailoring flow
   in try/except so no raw exception reaches the UI.
-- Project scaffolding (tests/, CI, Dockerfile, lint config) is in place.
+- **Testing** — `tests/` has real content: unit tests for `score_resume`'s weighted arithmetic and
+  output contract, `extract_keywords`/`match_keywords`, and `extract_experience_section`'s header
+  detection (including the "mentioned mid-bullet, not a real header" regression case), plus one
+  integration test that mocks all three external boundaries (OpenAI embeddings, both LCEL chains,
+  `requests.get`) and asserts the exact 3-embedding/2-completion API budget. The full suite passes
+  with `OPENAI_API_KEY` completely unset, confirming no test path makes a real network call.
+- Project scaffolding (tests/, CI, Dockerfile, lint config) is in place, and `ruff check` passes
+  cleanly across `app/` and `tests/`.
 
-**Next up:**
-- **Testing** — the `tests/` and CI scaffolding already exist; still need real test content for the
-  scorer, keyword matcher, section splitter, and one integration test that asserts the exact
-  3-embedding/2-completion API budget via mocks.
+All items from the original roadmap (CLAUDE.md issues #3–#11) are now implemented.
