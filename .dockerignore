@@ -1,32 +1,26 @@
-# Environments
 .env
 *.env
 !.env.example
 .venv/
 venv/
 env/
-
-# Byte-compiled / cache
 __pycache__/
 *.py[cod]
-*$py.class
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-
-# Distribution / packaging
 build/
 dist/
 *.egg-info/
-
-# IDE / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
-
-# Local-only Claude notes (personal, not shared with the team)
+.git/
+.github/
+tests/
+CLAUDE.md
 CLAUDE.local.md
+README.md
+*.png
