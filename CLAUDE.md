@@ -249,16 +249,18 @@ pinned: false
 
 ## Current Status & Roadmap
 
-**Done:** The core scoring feature is live — `resume_scorer.py` implements the 50/30/20 weighted
-score, `skill_matcher.py` does LLM-based keyword extraction (no more static list or broken regex),
-`resume_parser.py` isolates the experience section, and `main.py` caches the JD embedding/keywords
-in session state and no longer leaks temp files. Project scaffolding (tests/, CI, Dockerfile, lint
-config) is in place.
+**Done:**
+- **Core scoring feature** — `resume_scorer.py` implements the 50/30/20 weighted score,
+  `skill_matcher.py` does LLM-based keyword extraction (no more static list or broken regex),
+  `resume_parser.py` isolates the experience section, and `main.py` caches the JD
+  embedding/keywords in session state and no longer leaks temp files.
+- **UX polish** — `job_scraper.py` sends a `User-Agent` header and returns `None` on failure
+  instead of an error string; `main.py` has a pasted-JD fallback textarea, wide layout, before/after
+  score display with per-signal progress bars, matched/missing keyword columns, and a DOCX download
+  button (`resume_exporter.py`).
+- Project scaffolding (tests/, CI, Dockerfile, lint config) is in place.
 
 **Next up:**
-- **UX polish** — pasted-JD fallback and a `User-Agent` header in `job_scraper.py` (job boards
-  block bare requests today); full before/after score UI with progress bars and matched/missing
-  keyword columns; DOCX export via a new `resume_exporter.py`.
 - **Production hardening** — migrate `resume_editor.py` off deprecated `LLMChain` to LCEL; add
   upload size/type validation and token-length truncation; add a shared retry/backoff decorator for
   OpenAI 429s and wrap all external calls with friendly error messages.

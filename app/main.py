@@ -7,11 +7,13 @@ from dotenv import load_dotenv
 
 from job_scraper import extract_job_description
 from resume_editor import edit_resume
+from resume_exporter import export_docx
 from resume_parser import extract_experience_section, parse_docx, parse_pdf
 from resume_scorer import get_embedding, score_resume
 from skill_matcher import extract_keywords
 
 load_dotenv()
+st.set_page_config(layout="wide")
 st.title("AI Resume Tailoring Assistant")
 
 st.session_state.setdefault("jd_embedding", None)
@@ -20,10 +22,14 @@ st.session_state.setdefault("before_score", None)
 st.session_state.setdefault("after_score", None)
 st.session_state.setdefault("tailored_resume", None)
 
-uploaded_resume = st.file_uploader("Upload your resume (PDF or DOCX)", type=["pdf", "docx"])
-job_url = st.text_input("Paste the job application URL")
+col_resume, col_job = st.columns(2)
+with col_resume:
+    uploaded_resume = st.file_uploader("Upload your resume (PDF or DOCX)", type=["pdf", "docx"])
+with col_job:
+    job_url = st.text_input("Paste the job application URL")
+    pasted_job_desc = st.text_area("Or paste the job description directly")
 
-if st.button("Generate Tailored Resume") and uploaded_resume and job_url:
+if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pasted_job_desc):
     with st.spinner("Processing your resume..."):
         tmp_path = None
         try:
@@ -38,7 +44,24 @@ if st.button("Generate Tailored Resume") and uploaded_resume and job_url:
                 os.unlink(tmp_path)
 
         experience_text = extract_experience_section(resume_text)
-        job_desc = extract_job_description(job_url)
+
+        job_desc = None
+        if job_url:
+            job_desc = extract_job_description(job_url)
+            if job_desc is None:
+                st.warning(
+                    "Couldn't fetch that job posting URL — falling back to the pasted "
+                    "description, if provided."
+                )
+        if job_desc is None:
+            job_desc = pasted_job_desc
+
+        if not job_desc:
+            st.error(
+                "We couldn't get a job description from that URL, and none was pasted. "
+                "Please paste the job description and try again."
+            )
+            st.stop()
 
         if st.session_state.jd_embedding is None:
             st.session_state.jd_embedding = get_embedding(job_desc)
@@ -70,9 +93,17 @@ if st.session_state.before_score and st.session_state.after_score:
         f"{after['combined_score']}%",
         delta=after["combined_score"] - before["combined_score"],
     )
-    st.write(f"Semantic: {before['semantic_score']}% → {after['semantic_score']}%")
-    st.write(f"Keyword: {before['keyword_score']}% → {after['keyword_score']}%")
-    st.write(f"Experience: {before['experience_score']}% → {after['experience_score']}%")
+
+    col_semantic, col_keyword, col_experience = st.columns(3)
+    with col_semantic:
+        st.write(f"Semantic: {before['semantic_score']}% → {after['semantic_score']}%")
+        st.progress(after["semantic_score"] / 100)
+    with col_keyword:
+        st.write(f"Keyword: {before['keyword_score']}% → {after['keyword_score']}%")
+        st.progress(after["keyword_score"] / 100)
+    with col_experience:
+        st.write(f"Experience: {before['experience_score']}% → {after['experience_score']}%")
+        st.progress(after["experience_score"] / 100)
 
     col_matched, col_missing = st.columns(2)
     with col_matched:
@@ -86,3 +117,10 @@ if st.session_state.before_score and st.session_state.after_score:
 
     st.subheader("Updated Resume")
     st.text_area("Your tailored resume:", st.session_state.tailored_resume, height=500)
+
+    st.download_button(
+        "Download tailored resume (.docx)",
+        data=export_docx(st.session_state.tailored_resume),
+        file_name="tailored_resume.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
