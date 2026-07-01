@@ -1,6 +1,7 @@
 import numpy as np
 from openai import OpenAI
 
+from retry import with_backoff
 from skill_matcher import match_keywords
 
 _client = OpenAI()
@@ -8,6 +9,7 @@ _client = OpenAI()
 _EMBEDDING_MODEL = "text-embedding-3-small"
 
 
+@with_backoff()
 def get_embedding(text: str, model: str = _EMBEDDING_MODEL) -> list[float]:
     response = _client.embeddings.create(model=model, input=text)
     return response.data[0].embedding

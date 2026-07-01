@@ -258,12 +258,15 @@ pinned: false
   instead of an error string; `main.py` has a pasted-JD fallback textarea, wide layout, before/after
   score display with per-signal progress bars, matched/missing keyword columns, and a DOCX download
   button (`resume_exporter.py`).
+- **Production hardening** — `resume_editor.py` migrated off deprecated `LLMChain` to LCEL
+  (`prompt | llm | StrOutputParser()`); `validators.py` enforces the 5 MB/`.pdf`/`.docx` upload
+  limits and truncates resume/JD text to the token budgets in Input Limits; `retry.py`'s
+  `with_backoff` decorator wraps every OpenAI call site (`get_embedding`, `extract_keywords`,
+  `edit_resume`) with exponential-backoff retry on 429s; `main.py` wraps the scoring/tailoring flow
+  in try/except so no raw exception reaches the UI.
 - Project scaffolding (tests/, CI, Dockerfile, lint config) is in place.
 
 **Next up:**
-- **Production hardening** — migrate `resume_editor.py` off deprecated `LLMChain` to LCEL; add
-  upload size/type validation and token-length truncation; add a shared retry/backoff decorator for
-  OpenAI 429s and wrap all external calls with friendly error messages.
 - **Testing** — the `tests/` and CI scaffolding already exist; still need real test content for the
   scorer, keyword matcher, section splitter, and one integration test that asserts the exact
   3-embedding/2-completion API budget via mocks.

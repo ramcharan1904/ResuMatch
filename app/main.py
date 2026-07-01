@@ -11,6 +11,10 @@ from resume_exporter import export_docx
 from resume_parser import extract_experience_section, parse_docx, parse_pdf
 from resume_scorer import get_embedding, score_resume
 from skill_matcher import extract_keywords
+from validators import truncate_to_token_limit, validate_upload
+
+RESUME_TOKEN_LIMIT = 6000
+JOB_DESC_TOKEN_LIMIT = 4000
 
 load_dotenv()
 st.set_page_config(layout="wide")
@@ -30,6 +34,11 @@ with col_job:
     pasted_job_desc = st.text_area("Or paste the job description directly")
 
 if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pasted_job_desc):
+    is_valid, validation_error = validate_upload(uploaded_resume)
+    if not is_valid:
+        st.error(validation_error)
+        st.stop()
+
     with st.spinner("Processing your resume..."):
         tmp_path = None
         try:
@@ -43,11 +52,15 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
+        resume_text = truncate_to_token_limit(resume_text, RESUME_TOKEN_LIMIT)
         experience_text = extract_experience_section(resume_text)
 
         job_desc = None
         if job_url:
-            job_desc = extract_job_description(job_url)
+            try:
+                job_desc = extract_job_description(job_url)
+            except Exception:
+                job_desc = None
             if job_desc is None:
                 st.warning(
                     "Couldn't fetch that job posting URL — falling back to the pasted "
@@ -63,23 +76,32 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
             )
             st.stop()
 
-        if st.session_state.jd_embedding is None:
-            st.session_state.jd_embedding = get_embedding(job_desc)
-            st.session_state.jd_keywords = extract_keywords(job_desc)
+        job_desc = truncate_to_token_limit(job_desc, JOB_DESC_TOKEN_LIMIT)
 
-        st.session_state.before_score = score_resume(
-            resume_text, experience_text, st.session_state.jd_embedding, st.session_state.jd_keywords
-        )
+        try:
+            if st.session_state.jd_embedding is None:
+                st.session_state.jd_embedding = get_embedding(job_desc)
+                st.session_state.jd_keywords = extract_keywords(job_desc)
 
-        st.session_state.tailored_resume = edit_resume(resume_text, job_desc)
+            st.session_state.before_score = score_resume(
+                resume_text,
+                experience_text,
+                st.session_state.jd_embedding,
+                st.session_state.jd_keywords,
+            )
 
-        tailored_experience_text = extract_experience_section(st.session_state.tailored_resume)
-        st.session_state.after_score = score_resume(
-            st.session_state.tailored_resume,
-            tailored_experience_text,
-            st.session_state.jd_embedding,
-            st.session_state.jd_keywords,
-        )
+            st.session_state.tailored_resume = edit_resume(resume_text, job_desc)
+
+            tailored_experience_text = extract_experience_section(st.session_state.tailored_resume)
+            st.session_state.after_score = score_resume(
+                st.session_state.tailored_resume,
+                tailored_experience_text,
+                st.session_state.jd_embedding,
+                st.session_state.jd_keywords,
+            )
+        except Exception:
+            st.error("We couldn't score or tailor your resume right now. Please try again in a moment.")
+            st.stop()
 
         st.success("Resume successfully tailored to the job description!")
 

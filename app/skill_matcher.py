@@ -2,6 +2,8 @@ from langchain_core.output_parsers import CommaSeparatedListOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from retry import with_backoff
+
 _parser = CommaSeparatedListOutputParser()
 
 _prompt = ChatPromptTemplate.from_template(
@@ -17,6 +19,7 @@ _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 _chain = _prompt | _llm | _parser
 
 
+@with_backoff()
 def extract_keywords(job_description: str) -> list[str]:
     """Single LLM call: extract deduplicated resume-matchable keywords from a job description."""
     keywords = _chain.invoke({"job_description": job_description})
