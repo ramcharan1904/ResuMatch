@@ -5,11 +5,12 @@ import tempfile
 import streamlit as st
 from dotenv import load_dotenv
 from job_scraper import extract_job_description
+from resume_diff import render_tailored_html
 from resume_editor import edit_resume
 from resume_exporter import export_docx
 from resume_parser import extract_experience_section, parse_docx, parse_pdf
 from resume_scorer import get_embedding, score_resume
-from skill_matcher import extract_keywords
+from skill_matcher import extract_keywords, match_keywords
 from validators import truncate_to_token_limit, validate_upload
 
 RESUME_TOKEN_LIMIT = 6000
@@ -24,6 +25,9 @@ st.session_state.setdefault("jd_keywords", None)
 st.session_state.setdefault("before_score", None)
 st.session_state.setdefault("after_score", None)
 st.session_state.setdefault("tailored_resume", None)
+st.session_state.setdefault("resume_text", None)
+st.session_state.setdefault("experience_text", None)
+st.session_state.setdefault("tailored_experience_text", None)
 
 col_resume, col_job = st.columns(2)
 with col_resume:
@@ -52,7 +56,9 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
                 os.unlink(tmp_path)
 
         resume_text = truncate_to_token_limit(resume_text, RESUME_TOKEN_LIMIT)
+        st.session_state.resume_text = resume_text
         experience_text = extract_experience_section(resume_text)
+        st.session_state.experience_text = experience_text
 
         job_desc = None
         if job_url:
@@ -92,6 +98,7 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
             st.session_state.tailored_resume = edit_resume(resume_text, job_desc)
 
             tailored_experience_text = extract_experience_section(st.session_state.tailored_resume)
+            st.session_state.tailored_experience_text = tailored_experience_text
             st.session_state.after_score = score_resume(
                 st.session_state.tailored_resume,
                 tailored_experience_text,
@@ -138,8 +145,52 @@ if st.session_state.before_score and st.session_state.after_score:
         for kw in after["missing_keywords"]:
             st.write(f"❌ {kw}")
 
+    newly_added_keywords = sorted(set(after["matched_keywords"]) - set(before["matched_keywords"]))
+    if newly_added_keywords:
+        st.subheader("Keywords Added by Tailoring")
+        st.caption(
+            "Present in the job description, missing from your original resume, now included."
+        )
+        for kw in newly_added_keywords:
+            st.write(f"🆕 {kw}")
+
+    if st.session_state.jd_keywords:
+        experience_matched_before, _ = match_keywords(
+            st.session_state.jd_keywords, st.session_state.experience_text
+        )
+        experience_matched_after, _ = match_keywords(
+            st.session_state.jd_keywords, st.session_state.tailored_experience_text
+        )
+        newly_aligned_experience = sorted(
+            set(experience_matched_after) - set(experience_matched_before)
+        )
+
+        st.subheader("Experience Alignment")
+        st.caption("Job description keywords found specifically within your experience section.")
+        col_exp_before, col_exp_after = st.columns(2)
+        with col_exp_before:
+            st.write(f"Before ({len(experience_matched_before)} matched)")
+            for kw in experience_matched_before:
+                st.write(f"• {kw}")
+        with col_exp_after:
+            st.write(f"After ({len(experience_matched_after)} matched)")
+            for kw in experience_matched_after:
+                marker = "🆕" if kw in newly_aligned_experience else "•"
+                st.write(f"{marker} {kw}")
+
     st.subheader("Updated Resume")
-    st.text_area("Your tailored resume:", st.session_state.tailored_resume, height=500)
+    st.caption(
+        "This is exactly what you'll download. Green = added by tailoring · "
+        "bold underline = job description keyword."
+    )
+    st.markdown(
+        render_tailored_html(
+            st.session_state.resume_text,
+            st.session_state.tailored_resume,
+            st.session_state.jd_keywords or [],
+        ),
+        unsafe_allow_html=True,
+    )
 
     st.download_button(
         "Download tailored resume (.docx)",
