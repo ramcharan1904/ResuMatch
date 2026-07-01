@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 from retry import with_backoff
 
 _prompt = PromptTemplate(
-    input_variables=["resume", "job_description"],
+    input_variables=["resume", "job_description", "keyword_instructions"],
     template="""
 You are RésuméTailor-GPT, an expert at rewriting résumés so they rank in the top 5 % of modern Applicant-Tracking-System (ATS) scores (Jobscan, Greenhouse, Workday, Lever, etc.).
 
@@ -14,9 +14,12 @@ Job Description:
 Candidate Resume:
 {resume}
 
+### TARGET KEYWORDS TO INCORPORATE
+{keyword_instructions}
+
 ### OBJECTIVES
 1. **ATS Match ≥ 95 %**
-   - Incorporate all exact keywords, skills, tools, certifications, and job-title phrases found in the posting.
+   - Incorporate every keyword listed under TARGET KEYWORDS TO INCORPORATE above, using the placement guidance where given.
 2. **Template Integrity**
    - Keep every section, heading, ordering, bullet style, font cues, and white-space identical to the source résumé.
    - Do **not** add new sections or alter layout; insert or edit content only within existing structure.
@@ -32,7 +35,7 @@ Return **only** the fully revised résumé text—no commentary, no markdown.
 The finished document must render identically if pasted back into the original editor (MS Word, Google Docs, LaTeX, etc.).
 
 ### QUALITY CHECKLIST (silently verify before final output)
-- [ ] All mandatory keywords from the job description are present (exact spelling/case).
+- [ ] All keywords listed under TARGET KEYWORDS TO INCORPORATE are present (exact spelling/case).
 - [ ] No section order or styling changes.
 - [ ] Added skills are truthfully marked “(Beginner)”.
 - [ ] No personal data altered (name, contact, dates).
@@ -48,6 +51,32 @@ _llm = ChatOpenAI(model="gpt-4o-mini")
 _chain = _prompt | _llm | StrOutputParser()
 
 
+def _build_keyword_instructions(
+    target_keywords: list[str], keyword_placements: dict[str, str] | None
+) -> str:
+    keyword_placements = keyword_placements or {}
+    lines = []
+    for keyword in target_keywords:
+        placement = keyword_placements.get(keyword)
+        if placement:
+            lines.append(f'- {keyword} → add to: "{placement}"')
+        else:
+            lines.append(f"- {keyword}  (no specific placement — use your judgment on where it best fits)")
+    return "\n".join(lines)
+
+
 @with_backoff()
-def edit_resume(resume_text: str, job_description: str) -> str:
-    return _chain.invoke({"resume": resume_text, "job_description": job_description})
+def edit_resume(
+    resume_text: str,
+    job_description: str,
+    target_keywords: list[str],
+    keyword_placements: dict[str, str] | None = None,
+) -> str:
+    keyword_instructions = _build_keyword_instructions(target_keywords, keyword_placements)
+    return _chain.invoke(
+        {
+            "resume": resume_text,
+            "job_description": job_description,
+            "keyword_instructions": keyword_instructions,
+        }
+    )

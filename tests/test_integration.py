@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import job_scraper
+import keyword_placement
 import resume_editor
 import resume_parser
 import resume_scorer
@@ -46,7 +47,10 @@ def test_full_flow_respects_api_budget(monkeypatch):
     def fake_create(model, input):
         embedding_calls.append(input)
         response = MagicMock()
-        response.data = [MagicMock(embedding=[1.0, 0.0, 0.0])]
+        if isinstance(input, list):
+            response.data = [MagicMock(embedding=[1.0, 0.0, 0.0]) for _ in input]
+        else:
+            response.data = [MagicMock(embedding=[1.0, 0.0, 0.0])]
         return response
 
     monkeypatch.setattr(resume_scorer._client.embeddings, "create", fake_create)
@@ -82,15 +86,22 @@ def test_full_flow_respects_api_budget(monkeypatch):
         RESUME_TEXT, experience_text, jd_embedding, jd_keywords
     )
 
-    tailored_resume = resume_editor.edit_resume(RESUME_TEXT, job_desc)
+    selected_keywords = ["Airflow"]
+    placements = keyword_placement.find_keyword_placements(RESUME_TEXT, selected_keywords)
+
+    tailored_resume = resume_editor.edit_resume(
+        RESUME_TEXT, job_desc, selected_keywords, placements
+    )
     tailored_experience_text = resume_parser.extract_experience_section(tailored_resume)
 
     after_score = resume_scorer.score_resume(
         tailored_resume, tailored_experience_text, jd_embedding, jd_keywords
     )
 
-    # CLAUDE.md's stated budget: exactly 3 embedding calls + 2 completion calls per run.
-    assert embedding_calls == [job_desc, RESUME_TEXT, tailored_resume]
+    # CLAUDE.md's stated budget: exactly 5 embedding calls + 2 completion calls per run
+    # (JD, before-resume, bullets-batch, keywords-batch, after-resume).
+    bullets = resume_parser.split_into_bullets(RESUME_TEXT)
+    assert embedding_calls == [job_desc, RESUME_TEXT, bullets, selected_keywords, tailored_resume]
     assert len(keyword_calls) == 1
     assert len(tailor_calls) == 1
 

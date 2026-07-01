@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
+
 import resume_scorer
-from resume_scorer import cosine_similarity, score_resume
+from resume_scorer import cosine_similarity, get_embeddings_batch, score_resume
 
 EXPECTED_KEYS = {
     "combined_score",
@@ -91,3 +93,21 @@ def test_score_resume_calls_get_embedding_once_for_resume_only(monkeypatch):
 
     # Experience score is keyword-overlap based, not a second embedding call.
     assert calls == ["Python developer"]
+
+
+def test_get_embeddings_batch_preserves_order_in_one_call(monkeypatch):
+    call_count = 0
+
+    def fake_create(model, input):
+        nonlocal call_count
+        call_count += 1
+        response = MagicMock()
+        response.data = [MagicMock(embedding=[float(i), 0.0, 0.0]) for i in range(len(input))]
+        return response
+
+    monkeypatch.setattr(resume_scorer._client.embeddings, "create", fake_create)
+
+    result = get_embeddings_batch(["Python", "SQL", "Airflow"])
+
+    assert call_count == 1
+    assert result == [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
