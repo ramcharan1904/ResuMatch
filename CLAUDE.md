@@ -74,10 +74,19 @@ Compute job description embedding + extract keywords  ── cached, reused belo
 Score original resume  →  before_score
         │
         ▼
-Tailor resume with LLM  →  tailored_resume_text
+[Stage 1 ends] Render before_score + missing-keyword multiselect (opt-in, none pre-selected)
         │
         ▼
-Score tailored resume  →  after_score
+User selects keywords to target  →  clicks "Tailor Resume"
+        │
+        ▼
+Find keyword placements (embed resume bullets + selected keywords, cosine-match)  ── ephemeral
+        │
+        ▼
+Tailor resume with LLM using selected keywords + placement guidance  →  tailored_resume_text
+        │
+        ▼
+Score tailored resume against the full JD keyword set  →  after_score
         │
         ▼
 Render before / after / delta / matched & missing keywords / DOCX download
@@ -126,11 +135,42 @@ call. This keeps the score meaningfully distinct from the whole-resume keyword s
 "do these terms show up in the experience itself, not just a skills list at the bottom") without
 adding API cost.
 
-**API cost per run:** exactly 3 embedding calls + 2 completion calls. JD embedding and JD keyword
+**API cost per run:** exactly 5 embedding calls + 2 completion calls. JD embedding and JD keyword
 extraction are each computed once and cached (`st.session_state.jd_embedding` /
-`st.session_state.jd_keywords`), then reused across both the before- and after-scoring passes; the
-remaining 2 embedding calls are the resume embedding on each pass, and the 2 completion calls are
-JD keyword extraction (once) and resume tailoring (once).
+`st.session_state.jd_keywords`), then reused across both the before- and after-scoring passes.
+Of the 5 embedding calls: 1 is the JD embedding, 2 are the resume embedding on each scoring pass,
+and 2 are new batched calls (all resume bullets in one call, all selected keywords in one call)
+used to compute keyword placement guidance ahead of tailoring — see Keyword Placement below. The
+2 completion calls are JD keyword extraction (once) and resume tailoring (once), unchanged.
+
+---
+
+## Keyword Placement
+
+Tailoring is a **two-stage flow**, not a single button:
+
+1. **Analyze** — parses the resume, resolves the JD, computes/caches the JD embedding and
+   keywords, and scores the original resume (`before_score`). Renders `before_score` plus an
+   opt-in `st.multiselect` of `before_score["missing_keywords"]` (nothing pre-selected) so the
+   user chooses which gaps to actually target.
+2. **Tailor Resume** — runs only once at least one keyword is selected. Calls
+   `keyword_placement.find_keyword_placements(resume_text, selected_keywords)` to get placement
+   guidance, then `resume_editor.edit_resume(resume_text, job_desc, selected_keywords,
+   placements)`, then re-scores the tailored resume against the **full** `jd_keywords` set (not
+   just the selected subset) so `after_score` stays an honest measure of overall JD fit.
+
+**Placement guidance is RAG-lite, not RAG.** A one-page resume already fits entirely in the LLM's
+context, so there's no "too large to retrieve" problem to solve. What placement guidance adds is
+narrower: `keyword_placement.find_keyword_placements` embeds every existing resume bullet
+(`resume_parser.split_into_bullets`) and every selected keyword (both via the batched
+`resume_scorer.get_embeddings_batch`), and for each keyword finds the bullet with the highest
+cosine similarity. A keyword whose best match clears `SIMILARITY_THRESHOLD` (0.3) is annotated
+with that bullet in the tailoring prompt (`"Kubernetes → add to: '...'"`); a keyword below the
+threshold is passed through with no placement guidance, and the LLM decides its placement freely
+— today's behavior, unchanged for that keyword. Everything here is ephemeral and in-memory: no
+vector store, no persistence, nothing written to disk. This is deliberately not a persistent
+RAG/vector-store setup — it exists purely to give the single tailoring LLM call better-informed
+instructions, not to retrieve from a corpus.
 
 ---
 
@@ -176,11 +216,17 @@ finally:
 **Streamlit state** — **implemented**, results persist across reruns via `st.session_state`:
 
 ```python
-st.session_state["before_score"]      # dict from score_resume()
-st.session_state["after_score"]       # dict from score_resume()
-st.session_state["tailored_resume"]   # str
-st.session_state["jd_embedding"]      # list[float], cached
-st.session_state["jd_keywords"]       # list[str], cached
+st.session_state["before_score"]              # dict from score_resume()
+st.session_state["after_score"]                # dict from score_resume()
+st.session_state["tailored_resume"]            # str
+st.session_state["tailored_experience_text"]   # str
+st.session_state["jd_embedding"]               # list[float], cached
+st.session_state["jd_keywords"]                # list[str], cached
+st.session_state["jd_analyzed"]                # bool, gates Stage 2 UI
+st.session_state["resume_text"]                # str, persisted for Stage 2
+st.session_state["experience_text"]            # str, persisted for Stage 2
+st.session_state["job_desc"]                   # str, persisted for Stage 2
+st.session_state["selected_keywords"]          # list[str], multiselect widget state
 ```
 
 **Error handling** — *pending* (see Current Status)
@@ -265,12 +311,15 @@ pinned: false
   `edit_resume`) with exponential-backoff retry on 429s; `main.py` wraps the scoring/tailoring flow
   in try/except so no raw exception reaches the UI.
 - **Testing** — `tests/` has real content: unit tests for `score_resume`'s weighted arithmetic and
-  output contract, `extract_keywords`/`match_keywords`, and `extract_experience_section`'s header
-  detection (including the "mentioned mid-bullet, not a real header" regression case), plus one
-  integration test that mocks all three external boundaries (OpenAI embeddings, both LCEL chains,
-  `requests.get`) and asserts the exact 3-embedding/2-completion API budget. The full suite passes
-  with `OPENAI_API_KEY` completely unset, confirming no test path makes a real network call.
+  output contract, `extract_keywords`/`match_keywords`, `extract_experience_section`'s header
+  detection (including the "mentioned mid-bullet, not a real header" regression case),
+  `split_into_bullets`, `get_embeddings_batch`, and `keyword_placement.find_keyword_placements`,
+  plus one integration test that mocks all three external boundaries (OpenAI embeddings, both LCEL
+  chains, `requests.get`) and asserts the exact 5-embedding/2-completion API budget. The full suite
+  passes with `OPENAI_API_KEY` completely unset, confirming no test path makes a real network call.
 - Project scaffolding (tests/, CI, Dockerfile, lint config) is in place, and `ruff check` passes
   cleanly across `app/` and `tests/`.
+- **Interactive keyword selection + placement guidance** — tailoring is now a two-stage
+  Analyze/Tailor flow; see Keyword Placement above.
 
 All items from the original roadmap (CLAUDE.md issues #3–#11) are now implemented.

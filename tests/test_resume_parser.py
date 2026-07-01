@@ -1,4 +1,4 @@
-from resume_parser import extract_experience_section
+from resume_parser import extract_experience_section, split_into_bullets
 
 RESUME_WITH_HEADER = """SUMMARY
 Backend engineer focused on data pipelines.
@@ -66,3 +66,18 @@ def test_does_not_mistake_bullet_mentioning_experience_for_a_header():
 def test_never_returns_empty_string():
     assert extract_experience_section("") == ""
     assert extract_experience_section("WORK EXPERIENCE\n") != ""
+
+
+def test_split_into_bullets_filters_headers_and_blank_lines():
+    bullets = split_into_bullets(RESUME_WITH_HEADER)
+    assert bullets == [
+        "Backend engineer focused on data pipelines.",
+        "Senior Data Engineer at Acme Corp",
+        "Built ETL pipelines using Python and Airflow.",
+        "BS Computer Science",
+    ]
+
+
+def test_split_into_bullets_headers_only_returns_empty_list():
+    headers_only = "SUMMARY\n\nWORK EXPERIENCE\n\nEDUCATION\n\nSKILLS\n"
+    assert split_into_bullets(headers_only) == []

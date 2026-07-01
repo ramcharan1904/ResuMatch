@@ -5,6 +5,7 @@ import tempfile
 import streamlit as st
 from dotenv import load_dotenv
 from job_scraper import extract_job_description
+from keyword_placement import find_keyword_placements
 from resume_editor import edit_resume
 from resume_exporter import export_docx
 from resume_parser import extract_experience_section, parse_docx, parse_pdf
@@ -21,9 +22,15 @@ st.title("AI Resume Tailoring Assistant")
 
 st.session_state.setdefault("jd_embedding", None)
 st.session_state.setdefault("jd_keywords", None)
+st.session_state.setdefault("jd_analyzed", False)
+st.session_state.setdefault("resume_text", None)
+st.session_state.setdefault("experience_text", None)
+st.session_state.setdefault("job_desc", None)
 st.session_state.setdefault("before_score", None)
 st.session_state.setdefault("after_score", None)
 st.session_state.setdefault("tailored_resume", None)
+st.session_state.setdefault("tailored_experience_text", None)
+st.session_state.setdefault("selected_keywords", [])
 
 col_resume, col_job = st.columns(2)
 with col_resume:
@@ -32,13 +39,13 @@ with col_job:
     job_url = st.text_input("Paste the job application URL")
     pasted_job_desc = st.text_area("Or paste the job description directly")
 
-if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pasted_job_desc):
+if st.button("Analyze") and uploaded_resume and (job_url or pasted_job_desc):
     is_valid, validation_error = validate_upload(uploaded_resume)
     if not is_valid:
         st.error(validation_error)
         st.stop()
 
-    with st.spinner("Processing your resume..."):
+    with st.spinner("Analyzing your resume..."):
         tmp_path = None
         try:
             suffix = os.path.splitext(uploaded_resume.name)[1]
@@ -88,21 +95,87 @@ if st.button("Generate Tailored Resume") and uploaded_resume and (job_url or pas
                 st.session_state.jd_embedding,
                 st.session_state.jd_keywords,
             )
-
-            st.session_state.tailored_resume = edit_resume(resume_text, job_desc)
-
-            tailored_experience_text = extract_experience_section(st.session_state.tailored_resume)
-            st.session_state.after_score = score_resume(
-                st.session_state.tailored_resume,
-                tailored_experience_text,
-                st.session_state.jd_embedding,
-                st.session_state.jd_keywords,
-            )
         except Exception:
             st.error(
-                "We couldn't score or tailor your resume right now. Please try again in a moment."
+                "We couldn't score your resume right now. Please try again in a moment."
             )
             st.stop()
+
+        st.session_state.resume_text = resume_text
+        st.session_state.experience_text = experience_text
+        st.session_state.job_desc = job_desc
+        st.session_state.jd_analyzed = True
+        st.session_state.after_score = None
+        st.session_state.tailored_resume = None
+        st.session_state.tailored_experience_text = None
+        st.session_state.selected_keywords = []
+
+        st.success("Analysis complete — select keywords below to tailor toward.")
+
+if st.session_state.jd_analyzed:
+    before = st.session_state.before_score
+
+    st.subheader("Current ATS Match Score")
+    st.metric("Combined Score", f"{before['combined_score']}%")
+
+    col_semantic, col_keyword, col_experience = st.columns(3)
+    with col_semantic:
+        st.write(f"Semantic: {before['semantic_score']}%")
+        st.progress(before["semantic_score"] / 100)
+    with col_keyword:
+        st.write(f"Keyword: {before['keyword_score']}%")
+        st.progress(before["keyword_score"] / 100)
+    with col_experience:
+        st.write(f"Experience: {before['experience_score']}%")
+        st.progress(before["experience_score"] / 100)
+
+    col_matched, col_missing = st.columns(2)
+    with col_matched:
+        st.write("Matched Keywords")
+        for kw in before["matched_keywords"]:
+            st.write(f"✅ {kw}")
+    with col_missing:
+        st.write("Missing Keywords")
+        for kw in before["missing_keywords"]:
+            st.write(f"❌ {kw}")
+
+    st.multiselect(
+        "Select missing keywords to target",
+        options=before["missing_keywords"],
+        key="selected_keywords",
+    )
+
+    if not st.session_state.selected_keywords:
+        st.info("Select at least one keyword to tailor toward.")
+
+    if st.button("Tailor Resume", disabled=not st.session_state.selected_keywords):
+        with st.spinner("Tailoring your resume..."):
+            try:
+                placements = find_keyword_placements(
+                    st.session_state.resume_text, st.session_state.selected_keywords
+                )
+                st.session_state.tailored_resume = edit_resume(
+                    st.session_state.resume_text,
+                    st.session_state.job_desc,
+                    st.session_state.selected_keywords,
+                    placements,
+                )
+
+                tailored_experience_text = extract_experience_section(
+                    st.session_state.tailored_resume
+                )
+                st.session_state.tailored_experience_text = tailored_experience_text
+                st.session_state.after_score = score_resume(
+                    st.session_state.tailored_resume,
+                    tailored_experience_text,
+                    st.session_state.jd_embedding,
+                    st.session_state.jd_keywords,
+                )
+            except Exception:
+                st.error(
+                    "We couldn't tailor your resume right now. Please try again in a moment."
+                )
+                st.stop()
 
         st.success("Resume successfully tailored to the job description!")
 

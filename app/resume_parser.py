@@ -54,3 +54,19 @@ def extract_experience_section(resume_text: str) -> str:
 
     section = "\n".join(lines[start_index:end_index]).strip()
     return section if section else resume_text
+
+
+def split_into_bullets(resume_text: str) -> list[str]:
+    """
+    Returns every non-blank, non-header line in the resume — the candidate set of existing
+    bullets/sentences a keyword could be attached to. Reuses _is_header_line against the
+    combined experience + next-section header lists.
+    """
+    headers = _EXPERIENCE_HEADERS + _NEXT_SECTION_HEADERS
+    bullets = []
+    for line in resume_text.splitlines():
+        stripped = line.strip()
+        if not stripped or _is_header_line(line, headers):
+            continue
+        bullets.append(stripped)
+    return bullets
