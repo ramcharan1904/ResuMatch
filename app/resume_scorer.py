@@ -14,6 +14,14 @@ def get_embedding(text: str, model: str = _EMBEDDING_MODEL) -> list[float]:
     return response.data[0].embedding
 
 
+@with_backoff()
+def get_embeddings_batch(texts: list[str], model: str = _EMBEDDING_MODEL) -> list[list[float]]:
+    """One OpenAI call embedding multiple texts at once, returning embeddings in the same
+    order as texts."""
+    response = _client.embeddings.create(model=model, input=texts)
+    return [item.embedding for item in response.data]
+
+
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     a = np.array(vec_a)
     b = np.array(vec_b)
