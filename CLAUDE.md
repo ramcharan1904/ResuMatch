@@ -56,6 +56,8 @@ Dockerfile, .dockerignore  # Container definition
 CLAUDE.md                  # This document
 CLAUDE.local.md            # Machine-local notes (gitignored, not for the team)
 README.md                  # User-facing setup and usage guide
+LICENSE                    # MIT
+docs/                       # README screenshots
 .gitignore
 ```
 

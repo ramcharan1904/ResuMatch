@@ -16,8 +16,8 @@ description, lets you choose exactly which missing keywords to target, tailors t
 those choices with an LLM, and shows a quantitative before/after comparison plus a word-level diff
 of what changed — so you always know exactly what was added and why.
 
-![ResuMatch screenshot](Screenshot%202025-07-18%20145301.png)
-![ResuMatch screenshot](Screenshot%202025-07-18%20150302.png)
+![ResuMatch screenshot](docs/Screenshot%202025-07-18%20145301.png)
+![ResuMatch screenshot](docs/Screenshot%202025-07-18%20150302.png)
 
 ## How It Works
 
@@ -124,3 +124,7 @@ the 50/30/20 scoring engine (with semantic score calibration), interactive keywo
 RAG-lite placement guidance, word-level diff highlighting, a fixed-template DOCX export, upload
 validation, retry/backoff on rate limits, and a fully mocked test suite. See
 [`CLAUDE.md`](CLAUDE.md#current-status--roadmap) for details.
+
+## License
+
+[MIT](LICENSE)
