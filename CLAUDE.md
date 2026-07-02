@@ -339,8 +339,12 @@ never hardcoded.
 
 ## Deployment — Hugging Face Spaces
 
-- Runtime: Streamlit SDK
-- Entry point: `app/main.py`
+- Runtime: **Docker SDK**, built from the repo's own `Dockerfile` (not the Streamlit SDK — HF's
+  Streamlit SDK card wasn't available at Space-creation time; Docker + the Streamlit template
+  was used instead, which just means HF builds and runs `Dockerfile` directly rather than
+  managing the Streamlit runtime itself).
+- `Dockerfile` installs `requirements.txt`, copies `app/`, and runs
+  `streamlit run app/main.py --server.port=8501 --server.address=0.0.0.0`.
 - `README.md` carries the required HF Spaces front matter:
 
 ```yaml
@@ -349,15 +353,17 @@ title: ResuMatch
 emoji: 📄
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-sdk_version: 1.32.0
-app_file: app/main.py
+sdk: docker
+app_port: 8501
 pinned: false
 ---
 ```
 
+  `app_port: 8501` is required because HF's Docker Spaces default to routing traffic to port
+  7860; without it, the Space would build successfully but be unreachable.
 - `OPENAI_API_KEY` is set under Space Settings → Variables and Secrets; keys are never hardcoded or
-  committed.
+  committed. `app/.env` doesn't exist on the Space at all — `load_dotenv()` no-ops safely when the
+  file is missing, and the secret is already in the container's environment.
 
 ---
 

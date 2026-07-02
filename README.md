@@ -3,9 +3,8 @@ title: ResuMatch
 emoji: 📄
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-sdk_version: 1.32.0
-app_file: app/main.py
+sdk: docker
+app_port: 8501
 pinned: false
 ---
 
@@ -113,9 +112,10 @@ ruff check app tests
 
 ## Deployment
 
-ResuMatch is deployed on [Hugging Face Spaces](https://huggingface.co/spaces) using the Streamlit
-SDK. Set `OPENAI_API_KEY` under Space Settings → Variables and Secrets — never commit real keys.
-A `Dockerfile` is also provided for container-based deployment elsewhere.
+ResuMatch is deployed on [Hugging Face Spaces](https://huggingface.co/spaces) using the Docker SDK
+— HF builds and runs the repo's own `Dockerfile` directly. Set `OPENAI_API_KEY` under Space
+Settings → Variables and Secrets — never commit real keys. The same `Dockerfile` works for
+container-based deployment anywhere else too.
 
 ## Project Status
 
