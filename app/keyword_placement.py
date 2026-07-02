@@ -8,14 +8,16 @@ def find_keyword_placements(resume_text: str, keywords: list[str]) -> dict[str, 
     """
     Maps each keyword to the resume bullet it's most semantically similar to. Keywords whose
     best match is below SIMILARITY_THRESHOLD are omitted — the LLM decides their placement
-    freely, same as today. Purely ephemeral: two batched embedding calls, nothing persisted.
+    freely, same as today. Purely ephemeral: one merged batched embedding call (bullets and
+    keywords together), nothing persisted.
     """
     bullets = split_into_bullets(resume_text)
     if not bullets or not keywords:
         return {}
 
-    bullet_embeddings = get_embeddings_batch(bullets)
-    keyword_embeddings = get_embeddings_batch(keywords)
+    all_embeddings = get_embeddings_batch(bullets + keywords)
+    bullet_embeddings = all_embeddings[: len(bullets)]
+    keyword_embeddings = all_embeddings[len(bullets) :]
 
     placements = {}
     for keyword, kw_embedding in zip(keywords, keyword_embeddings):

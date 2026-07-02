@@ -98,10 +98,15 @@ def test_full_flow_respects_api_budget(monkeypatch):
         tailored_resume, tailored_experience_text, jd_embedding, jd_keywords
     )
 
-    # CLAUDE.md's stated budget: exactly 5 embedding calls + 2 completion calls per run
-    # (JD, before-resume, bullets-batch, keywords-batch, after-resume).
+    # CLAUDE.md's stated budget: exactly 4 embedding calls + 2 completion calls per run
+    # (JD, before-resume, merged bullets+keywords placement batch, after-resume).
     bullets = resume_parser.split_into_bullets(RESUME_TEXT)
-    assert embedding_calls == [job_desc, RESUME_TEXT, bullets, selected_keywords, tailored_resume]
+    assert embedding_calls == [
+        job_desc,
+        RESUME_TEXT,
+        bullets + selected_keywords,
+        tailored_resume,
+    ]
     assert len(keyword_calls) == 1
     assert len(tailor_calls) == 1
 

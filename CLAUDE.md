@@ -135,13 +135,17 @@ call. This keeps the score meaningfully distinct from the whole-resume keyword s
 "do these terms show up in the experience itself, not just a skills list at the bottom") without
 adding API cost.
 
-**API cost per run:** exactly 5 embedding calls + 2 completion calls. JD embedding and JD keyword
+**API cost per run:** exactly 4 embedding calls + 2 completion calls. JD embedding and JD keyword
 extraction are each computed once and cached (`st.session_state.jd_embedding` /
 `st.session_state.jd_keywords`), then reused across both the before- and after-scoring passes.
-Of the 5 embedding calls: 1 is the JD embedding, 2 are the resume embedding on each scoring pass,
-and 2 are new batched calls (all resume bullets in one call, all selected keywords in one call)
-used to compute keyword placement guidance ahead of tailoring — see Keyword Placement below. The
-2 completion calls are JD keyword extraction (once) and resume tailoring (once), unchanged.
+Of the 4 embedding calls: 1 is the JD embedding, 2 are the resume embedding on each scoring pass,
+and 1 is a single merged batched call (all resume bullets and all selected keywords together,
+split back apart by index after the call returns) used to compute keyword placement guidance
+ahead of tailoring — see Keyword Placement below. Merging bullets and keywords into one call
+instead of two doesn't change cost meaningfully (`text-embedding-3-small` is ~$0.00002/1K
+tokens either way) — the point is shaving a network round-trip off perceived latency in the
+synchronous UI. The 2 completion calls are JD keyword extraction (once) and resume tailoring
+(once), unchanged.
 
 ---
 
@@ -162,9 +166,9 @@ Tailoring is a **two-stage flow**, not a single button:
 **Placement guidance is RAG-lite, not RAG.** A one-page resume already fits entirely in the LLM's
 context, so there's no "too large to retrieve" problem to solve. What placement guidance adds is
 narrower: `keyword_placement.find_keyword_placements` embeds every existing resume bullet
-(`resume_parser.split_into_bullets`) and every selected keyword (both via the batched
-`resume_scorer.get_embeddings_batch`), and for each keyword finds the bullet with the highest
-cosine similarity. A keyword whose best match clears `SIMILARITY_THRESHOLD` (0.3) is annotated
+(`resume_parser.split_into_bullets`) and every selected keyword together in a single
+`resume_scorer.get_embeddings_batch` call, then splits the result back apart by index, and for
+each keyword finds the bullet with the highest cosine similarity. A keyword whose best match clears
 with that bullet in the tailoring prompt (`"Kubernetes → add to: '...'"`); a keyword below the
 threshold is passed through with no placement guidance, and the LLM decides its placement freely
 — today's behavior, unchanged for that keyword. Everything here is ephemeral and in-memory: no
@@ -315,7 +319,7 @@ pinned: false
   detection (including the "mentioned mid-bullet, not a real header" regression case),
   `split_into_bullets`, `get_embeddings_batch`, and `keyword_placement.find_keyword_placements`,
   plus one integration test that mocks all three external boundaries (OpenAI embeddings, both LCEL
-  chains, `requests.get`) and asserts the exact 5-embedding/2-completion API budget. The full suite
+  chains, `requests.get`) and asserts the exact 4-embedding/2-completion API budget. The full suite
   passes with `OPENAI_API_KEY` completely unset, confirming no test path makes a real network call.
 - Project scaffolding (tests/, CI, Dockerfile, lint config) is in place, and `ruff check` passes
   cleanly across `app/` and `tests/`.
