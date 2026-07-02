@@ -34,19 +34,23 @@ reads the resume.
 
 ```
 app/
-  main.py                  # Streamlit UI and orchestration; session-state caching
-  resume_parser.py         # PDF/DOCX text extraction + extract_experience_section()
-  job_scraper.py           # Job description retrieval from URL
+  main.py                  # Streamlit UI and orchestration; two-stage Analyze/Tailor flow
+  resume_parser.py         # PDF/DOCX text extraction, section/header detection, bullet splitting
+  job_scraper.py           # Job description retrieval from URL (User-Agent, graceful failure)
   skill_matcher.py         # LLM-based JD keyword extraction + case-insensitive matching
-  resume_scorer.py         # Combined semantic + keyword + experience scoring
-  resume_editor.py         # LLM-driven resume tailoring
+  resume_scorer.py         # Combined semantic + keyword + experience scoring; embeddings
+  keyword_placement.py     # RAG-lite: maps selected keywords to the best-matching resume bullet
+  resume_editor.py         # LLM-driven resume tailoring (LCEL)
+  resume_diff.py           # Word-level diff + inline keyword highlighting for the preview
   resume_structurer.py     # Heuristic freeform-text -> structured resume fields
   resume_exporter.py       # Fixed-template DOCX export from structured fields
+  validators.py            # Upload size/type checks, token-limit truncation
+  retry.py                 # Exponential-backoff decorator for OpenAI 429s
   .env                     # Local API keys (never committed)
 .env.example               # Onboarding template for environment variables
-requirements.txt           # Runtime dependencies
-requirements-dev.txt       # + pytest, pytest-mock, ruff, black
-tests/                     # pytest suite (scaffolded; test content in progress)
+requirements.txt           # Pinned runtime dependencies
+requirements-dev.txt       # + pytest, pytest-mock, ruff, black (pinned)
+tests/                     # pytest suite — 67 tests, fully mocked, no real API calls
 .github/workflows/ci.yml   # Lint + test on push/PR
 Dockerfile, .dockerignore  # Container definition
 CLAUDE.md                  # This document
@@ -91,7 +95,12 @@ Tailor resume with LLM using selected keywords + placement guidance  →  tailor
 Score tailored resume against the full JD keyword set  →  after_score
         │
         ▼
-Render before / after / delta / matched & missing keywords / DOCX download
+Render before/after score delta, horizontal matched/missing keyword lists, newly-added
+keywords, experience alignment, and a word-level diff of the tailored resume (green
+additions + bold keyword highlights, exactly matching what will download)
+        │
+        ▼
+Structure the tailored text heuristically and export as a fixed-template DOCX
 ```
 
 ---
@@ -237,9 +246,9 @@ chain = LLMChain(llm=llm, prompt=prompt)
 chain.run(...)
 ```
 
-`skill_matcher.py` follows this today (`prompt | llm | CommaSeparatedListOutputParser()`).
-`resume_editor.py` still uses the deprecated `LLMChain`/`chain.run()` API — migrating it to LCEL is
-the one remaining conversion (see Current Status below).
+Both `skill_matcher.py` (`prompt | llm | CommaSeparatedListOutputParser()`) and `resume_editor.py`
+(`prompt | llm | StrOutputParser()`) follow this today — no deprecated `LLMChain` remains anywhere
+in the codebase.
 
 ---
 
@@ -278,20 +287,23 @@ st.session_state["job_desc"]                   # str, persisted for Stage 2
 st.session_state["selected_keywords"]          # list[str], multiselect widget state
 ```
 
-**Error handling** — *pending* (see Current Status)
-- Every external API call (OpenAI, job scraping) should be wrapped in try/except with a friendly,
-  non-technical message — raw stack traces must never reach the UI
-- Job description scraping failures should degrade gracefully to the pasted-text fallback
-- OpenAI rate-limit responses (429) should be retried with exponential backoff
+**Error handling** — **implemented**
+- Every external API call (`get_embedding`, `get_embeddings_batch`, `extract_keywords`,
+  `edit_resume`) is wrapped with `retry.with_backoff()`, retrying on OpenAI 429s with exponential
+  backoff + jitter before giving up
+- `main.py` wraps the scoring/tailoring flow in try/except and shows a friendly `st.error(...)` —
+  no raw exception or stack trace ever reaches the UI
+- Job description scraping failures (`job_scraper.extract_job_description` returning `None`)
+  degrade gracefully to the pasted-text fallback
 
-**Input limits** — *pending*
+**Input limits** — **implemented** via `validators.py`
 
 | Input | Limit | Reason |
 |---|---|---|
-| Resume file size | 5 MB | Prevent large-upload abuse |
-| Resume text | 6,000 tokens | Stay within LLM context safely |
-| Job description text | 4,000 tokens | Stay within LLM context safely |
-| Accepted file types | `.pdf`, `.docx` only | Constrain parsing surface area |
+| Resume file size | 5 MB | Prevent large-upload abuse (`validate_upload`) |
+| Resume text | 6,000 tokens | Stay within LLM context safely (`truncate_to_token_limit`) |
+| Job description text | 4,000 tokens | Stay within LLM context safely (`truncate_to_token_limit`) |
+| Accepted file types | `.pdf`, `.docx` only | Constrain parsing surface area (`validate_upload`) |
 
 **Environment variables** — implemented
 
@@ -309,11 +321,16 @@ load_dotenv()
 On Hugging Face Spaces, `OPENAI_API_KEY` is set as a Space Secret (Settings → Variables and Secrets),
 never hardcoded.
 
-**UI layout** — *pending polish*
+**UI layout** — **implemented**
 - Wide layout (`st.set_page_config(layout="wide")`)
 - Two-column input: resume upload | job URL with paste fallback
-- Score display via `st.metric()` with before/after delta and progress bars
-- Matched (✅) and missing (❌) keywords shown side by side
+- Two-stage flow: "Analyze" renders `before_score` + an opt-in missing-keyword multiselect;
+  "Tailor Resume" (disabled until at least one keyword is selected) renders the full comparison
+- Score display via `st.metric()`/`st.progress()` with before/after delta per signal
+- Matched (✅) and missing (❌) keywords rendered as single horizontal lines, not one per row
+- "Keywords Added by Tailoring" and "Experience Alignment" sections showing what changed
+- Word-level diff preview of the tailored resume (green additions, bold keyword highlights) that
+  always matches the download exactly
 - DOCX download action at the bottom of the flow
 
 ---
