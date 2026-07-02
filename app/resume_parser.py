@@ -10,15 +10,27 @@ def parse_docx(file_path):
     doc = docx.Document(file_path)
     return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
 
-_EXPERIENCE_HEADERS = [
-    "work experience", "professional experience", "experience",
-    "employment history", "work history", "relevant experience", "career history",
-]
+_SECTION_ALIASES = {
+    "work experience": "EXPERIENCE",
+    "professional experience": "EXPERIENCE",
+    "experience": "EXPERIENCE",
+    "employment history": "EXPERIENCE",
+    "work history": "EXPERIENCE",
+    "relevant experience": "EXPERIENCE",
+    "career history": "EXPERIENCE",
+    "education": "EDUCATION",
+    "skills": "SKILLS",
+    "projects": "PROJECTS",
+    "certifications": "CERTIFICATIONS",
+    "publications": "PUBLICATIONS",
+    "awards": "AWARDS",
+    "references": "REFERENCES",
+    "summary": "SUMMARY",
+    "objective": "OBJECTIVE",
+}
 
-_NEXT_SECTION_HEADERS = [
-    "education", "skills", "projects", "certifications",
-    "publications", "awards", "references", "summary", "objective",
-]
+_EXPERIENCE_HEADERS = [k for k, v in _SECTION_ALIASES.items() if v == "EXPERIENCE"]
+_NEXT_SECTION_HEADERS = [k for k, v in _SECTION_ALIASES.items() if v != "EXPERIENCE"]
 
 
 def _is_header_line(line: str, candidates: list[str]) -> bool:
@@ -26,6 +38,16 @@ def _is_header_line(line: str, candidates: list[str]) -> bool:
     if not stripped or len(stripped) > 40:
         return False
     return stripped.lower() in candidates
+
+
+def classify_header(line: str) -> str | None:
+    """Returns the canonical section name for a standalone header line (e.g. 'Work Experience'
+    -> 'EXPERIENCE', 'Certifications' -> 'CERTIFICATIONS'), or None if the line isn't a
+    recognized section header."""
+    stripped = line.strip().rstrip(":").strip()
+    if not stripped or len(stripped) > 40:
+        return None
+    return _SECTION_ALIASES.get(stripped.lower())
 
 
 def extract_experience_section(resume_text: str) -> str:

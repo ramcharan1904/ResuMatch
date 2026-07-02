@@ -40,6 +40,8 @@ app/
   skill_matcher.py         # LLM-based JD keyword extraction + case-insensitive matching
   resume_scorer.py         # Combined semantic + keyword + experience scoring
   resume_editor.py         # LLM-driven resume tailoring
+  resume_structurer.py     # Heuristic freeform-text -> structured resume fields
+  resume_exporter.py       # Fixed-template DOCX export from structured fields
   .env                     # Local API keys (never committed)
 .env.example               # Onboarding template for environment variables
 requirements.txt           # Runtime dependencies
@@ -179,12 +181,45 @@ narrower: `keyword_placement.find_keyword_placements` embeds every existing resu
 (`resume_parser.split_into_bullets`) and every selected keyword together in a single
 `resume_scorer.get_embeddings_batch` call, then splits the result back apart by index, and for
 each keyword finds the bullet with the highest cosine similarity. A keyword whose best match clears
-with that bullet in the tailoring prompt (`"Kubernetes → add to: '...'"`); a keyword below the
-threshold is passed through with no placement guidance, and the LLM decides its placement freely
+`SIMILARITY_THRESHOLD` (0.3) is annotated with that bullet in the tailoring prompt
+(`"Kubernetes → add to: '...'"`); a keyword below the threshold is passed through with no
+placement guidance, and the LLM decides its placement freely
 — today's behavior, unchanged for that keyword. Everything here is ephemeral and in-memory: no
 vector store, no persistence, nothing written to disk. This is deliberately not a persistent
 RAG/vector-store setup — it exists purely to give the single tailoring LLM call better-informed
 instructions, not to retrieve from a corpus.
+
+---
+
+## Resume Export
+
+The downloadable `.docx` always renders into a **fixed template** — a centered bold name and
+contact line, then `EXPERIENCE` / `PROJECTS` / `EDUCATION` / `SKILLS` sections (only those with
+content, in that order), regardless of how the originally uploaded resume was formatted. Each
+experience/project/education entry renders as a bold heading with the date range right-aligned
+on the same line (`resume_exporter._add_heading_dates_paragraph`, via a right tab stop), an
+italic subheading line when one is detected, and bulleted achievements. Any section from the
+original resume that doesn't map to those four (e.g. Certifications) is appended at the end in a
+simple bulleted format, so nothing from the original resume is silently dropped.
+
+`resume_structurer.structure_resume` extracts this structure **heuristically** — no extra LLM
+call, no persistence:
+- Name = the first non-blank line; contact = the next non-blank line if it contains `@` or a
+  digit, else empty.
+- A regex (`_DATE_RANGE_RE`) finds date ranges (`"2021-2024"`, `"Aug. 2019 – Present"`, etc.);
+  the line containing one starts a new entry, split into heading (everything else on that line)
+  and dates.
+- The line immediately after a date-header becomes the entry's *subheading* only if it's short
+  (≤40 chars) and doesn't end in sentence punctuation (e.g. "Remote") — otherwise it's treated as
+  bullet content. This distinction matters because LLM-tailored output writes achievements as
+  flowing multi-sentence paragraphs on one line rather than one bullet per line; such lines are
+  split back into individual bullets at sentence boundaries (`_split_into_sentences`) so the
+  final document reads as a normal bulleted resume, not one long italic paragraph.
+
+Being heuristic, this **will misfire** on resumes formatted very differently than expected (dates
+embedded mid-bullet, no date range at all, non-English date formats). If `structure_resume` finds
+no recognizable sections at all, `export_docx` falls back to one plain paragraph per line rather
+than producing a broken or empty document.
 
 ---
 
@@ -335,5 +370,12 @@ pinned: false
   cleanly across `app/` and `tests/`.
 - **Interactive keyword selection + placement guidance** — tailoring is now a two-stage
   Analyze/Tailor flow; see Keyword Placement above.
+- **Semantic score recalibration** — raw cosine similarity between real resume/JD text pairs is
+  compressed into roughly a 0.15–0.55 range rather than the full 0–1 range a flat `×100` scale
+  assumes; `resume_scorer._rescale_semantic_similarity` min-max rescales against those empirical
+  anchors so meaningful tailoring improvements actually move the score.
+- **Fixed-template DOCX export** — the download always renders into the same structured layout
+  (name/contact, EXPERIENCE/PROJECTS/EDUCATION/SKILLS with bold headings + right-aligned dates +
+  bullets) regardless of the original resume's formatting; see Resume Export above.
 
 All items from the original roadmap (CLAUDE.md issues #3–#11) are now implemented.

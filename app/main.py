@@ -132,15 +132,10 @@ if st.session_state.jd_analyzed:
         st.write(f"Experience: {before['experience_score']}%")
         st.progress(before["experience_score"] / 100)
 
-    col_matched, col_missing = st.columns(2)
-    with col_matched:
-        st.write("Matched Keywords")
-        for kw in before["matched_keywords"]:
-            st.write(f"✅ {kw}")
-    with col_missing:
-        st.write("Missing Keywords")
-        for kw in before["missing_keywords"]:
-            st.write(f"❌ {kw}")
+    st.write("Matched Keywords")
+    st.write("  ".join(f"✅ {kw}" for kw in before["matched_keywords"]) or "—")
+    st.write("Missing Keywords")
+    st.write("  ".join(f"❌ {kw}" for kw in before["missing_keywords"]) or "—")
 
     st.multiselect(
         "Select missing keywords to target",
@@ -204,15 +199,10 @@ if st.session_state.before_score and st.session_state.after_score:
         st.write(f"Experience: {before['experience_score']}% → {after['experience_score']}%")
         st.progress(after["experience_score"] / 100)
 
-    col_matched, col_missing = st.columns(2)
-    with col_matched:
-        st.write("Matched Keywords")
-        for kw in after["matched_keywords"]:
-            st.write(f"✅ {kw}")
-    with col_missing:
-        st.write("Missing Keywords")
-        for kw in after["missing_keywords"]:
-            st.write(f"❌ {kw}")
+    st.write("Matched Keywords")
+    st.write("  ".join(f"✅ {kw}" for kw in after["matched_keywords"]) or "—")
+    st.write("Missing Keywords")
+    st.write("  ".join(f"❌ {kw}" for kw in after["missing_keywords"]) or "—")
 
     newly_added_keywords = sorted(set(after["matched_keywords"]) - set(before["matched_keywords"]))
     if newly_added_keywords:
