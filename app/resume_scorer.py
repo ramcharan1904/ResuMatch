@@ -32,6 +32,21 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     return max(0.0, min(1.0, similarity))
 
 
+# Raw cosine similarity between real (non-identical) professional texts rarely spans the full
+# 0-1 range. Empirically (see CLAUDE.md), an unrelated resume/JD pair lands around 0.15 and an
+# ideal, every-keyword-present match tops out around 0.55 -- so a flat *100 scale compresses all
+# real-world outcomes into a narrow band. These anchors rescale that realistic 0.15-0.55 range
+# onto a full 0-100 score.
+_SEMANTIC_SIMILARITY_FLOOR = 0.15
+_SEMANTIC_SIMILARITY_CEILING = 0.55
+
+
+def _rescale_semantic_similarity(raw_similarity: float) -> float:
+    span = _SEMANTIC_SIMILARITY_CEILING - _SEMANTIC_SIMILARITY_FLOOR
+    scaled = (raw_similarity - _SEMANTIC_SIMILARITY_FLOOR) / span
+    return max(0.0, min(1.0, scaled))
+
+
 def score_resume(
     resume_text: str,
     experience_text: str,
@@ -48,7 +63,8 @@ def score_resume(
     them once per run and reuse them across the before/after scoring passes.
     """
     resume_embedding = get_embedding(resume_text)
-    semantic_score = round(cosine_similarity(resume_embedding, jd_embedding) * 100)
+    raw_similarity = cosine_similarity(resume_embedding, jd_embedding)
+    semantic_score = round(_rescale_semantic_similarity(raw_similarity) * 100)
 
     matched, missing = match_keywords(jd_keywords, resume_text)
     keyword_score = round(100 * len(matched) / len(jd_keywords)) if jd_keywords else 0

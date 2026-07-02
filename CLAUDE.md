@@ -102,7 +102,7 @@ keyword coverage and experience relevance as supporting signals.
 
 | Signal | Method | Weight |
 |---|---|---|
-| Semantic Score | Cosine similarity — full resume embedding vs. job description embedding | 50% |
+| Semantic Score | Rescaled cosine similarity — full resume embedding vs. job description embedding | 50% |
 | Keyword Score | % of LLM-extracted job description keywords present anywhere in the resume | 30% |
 | Experience Score | % of the same JD keywords present specifically within the isolated experience section | 20% |
 
@@ -111,6 +111,16 @@ combined_score = (0.5 × semantic) + (0.3 × keyword) + (0.2 × experience)
 ```
 
 All scores are surfaced as 0–100% for readability.
+
+**Semantic score calibration.** Raw cosine similarity between two real (non-identical)
+professional texts rarely spans the full 0–1 range. Empirically, embedding a genuinely
+unrelated resume/JD pair (e.g. a nursing resume against a data-engineer posting) yields ~0.15,
+while an ideal resume with every JD keyword present tops out around ~0.55 — a flat ×100 scale
+compresses all realistic outcomes into a narrow ~15–55% band, making real improvements look
+like tiny bumps. `resume_scorer._rescale_semantic_similarity` min-max rescales raw cosine
+similarity from that empirical 0.15–0.55 range onto the full 0–100 score before weighting. These
+anchor values are a heuristic from a handful of manually-checked examples, not a statistically
+derived calibration — worth revisiting if real usage shows scores clustering oddly.
 
 **Output contract** (`resume_scorer.score_resume`):
 ```python

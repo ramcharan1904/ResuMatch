@@ -1,7 +1,12 @@
 from unittest.mock import MagicMock
 
 import resume_scorer
-from resume_scorer import cosine_similarity, get_embeddings_batch, score_resume
+from resume_scorer import (
+    _rescale_semantic_similarity,
+    cosine_similarity,
+    get_embeddings_batch,
+    score_resume,
+)
 
 EXPECTED_KEYS = {
     "combined_score",
@@ -23,6 +28,42 @@ def test_cosine_similarity_orthogonal_vectors():
 
 def test_cosine_similarity_zero_vector_returns_zero():
     assert cosine_similarity([0, 0, 0], [1, 0, 0]) == 0.0
+
+
+def test_rescale_semantic_similarity_at_floor_is_zero():
+    assert _rescale_semantic_similarity(0.15) == 0.0
+
+
+def test_rescale_semantic_similarity_at_ceiling_is_one():
+    assert _rescale_semantic_similarity(0.55) == 1.0
+
+
+def test_rescale_semantic_similarity_midpoint():
+    assert round(_rescale_semantic_similarity(0.35), 4) == 0.5
+
+
+def test_rescale_semantic_similarity_below_floor_clips_to_zero():
+    assert _rescale_semantic_similarity(0.0) == 0.0
+
+
+def test_rescale_semantic_similarity_above_ceiling_clips_to_one():
+    assert _rescale_semantic_similarity(1.0) == 1.0
+
+
+def test_score_resume_applies_semantic_rescaling(monkeypatch):
+    # A raw cosine similarity of 0.35 sits at the midpoint of the 0.15-0.55 realistic range,
+    # so it should rescale to a semantic_score of 50, not 35.
+    monkeypatch.setattr(resume_scorer, "get_embedding", lambda text, model=None: [1, 0, 0])
+    monkeypatch.setattr(resume_scorer, "cosine_similarity", lambda a, b: 0.35)
+
+    result = score_resume(
+        resume_text="some text",
+        experience_text="some text",
+        jd_embedding=[1, 0, 0],
+        jd_keywords=[],
+    )
+
+    assert result["semantic_score"] == 50
 
 
 def test_score_resume_weighted_arithmetic(monkeypatch):
