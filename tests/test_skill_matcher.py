@@ -1,21 +1,35 @@
 from types import SimpleNamespace
 
 import skill_matcher
-from skill_matcher import extract_keywords, match_keywords
+from skill_matcher import ExtractedKeyword, KeywordExtraction, extract_keywords, match_keywords
 
 
 def test_extract_keywords_dedupes_and_strips(monkeypatch):
-    fake_chain = SimpleNamespace(
-        invoke=lambda inputs: ["Python", " SQL ", "python", "Airflow", "SQL"]
+    fake_result = KeywordExtraction(
+        keywords=[
+            ExtractedKeyword(keyword="Python", priority="required"),
+            ExtractedKeyword(keyword=" SQL ", priority="required"),
+            ExtractedKeyword(keyword="python", priority="preferred"),
+            ExtractedKeyword(keyword="Airflow", priority="preferred"),
+            ExtractedKeyword(keyword="SQL", priority="preferred"),
+        ]
     )
+    fake_chain = SimpleNamespace(invoke=lambda inputs: fake_result)
     monkeypatch.setattr(skill_matcher, "_chain", fake_chain)
     result = extract_keywords("irrelevant job description text")
-    assert result == ["Python", "SQL", "Airflow"]
+    assert result == [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "required"},
+        {"keyword": "Airflow", "priority": "preferred"},
+    ]
 
 
 def test_extract_keywords_calls_chain_once(monkeypatch):
     calls = []
-    fake_chain = SimpleNamespace(invoke=lambda inputs: calls.append(inputs) or ["Python"])
+    fake_result = KeywordExtraction(
+        keywords=[ExtractedKeyword(keyword="Python", priority="required")]
+    )
+    fake_chain = SimpleNamespace(invoke=lambda inputs: calls.append(inputs) or fake_result)
     monkeypatch.setattr(skill_matcher, "_chain", fake_chain)
     extract_keywords("a job description")
     assert len(calls) == 1
@@ -23,24 +37,39 @@ def test_extract_keywords_calls_chain_once(monkeypatch):
 
 
 def test_match_keywords_case_insensitive():
-    matched, missing = match_keywords(["Python", "SQL"], "Experienced PYTHON developer.")
-    assert matched == ["Python"]
-    assert missing == ["SQL"]
+    keywords = [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "preferred"},
+    ]
+    matched, missing = match_keywords(keywords, "Experienced PYTHON developer.")
+    assert matched == [{"keyword": "Python", "priority": "required"}]
+    assert missing == [{"keyword": "SQL", "priority": "preferred"}]
 
 
 def test_match_keywords_multi_word_substring():
+    keywords = [
+        {"keyword": "machine learning", "priority": "required"},
+        {"keyword": "Kubernetes", "priority": "preferred"},
+    ]
     matched, missing = match_keywords(
-        ["machine learning", "Kubernetes"], "Built machine learning pipelines in production."
+        keywords, "Built machine learning pipelines in production."
     )
-    assert matched == ["machine learning"]
-    assert missing == ["Kubernetes"]
+    assert matched == [{"keyword": "machine learning", "priority": "required"}]
+    assert missing == [{"keyword": "Kubernetes", "priority": "preferred"}]
 
 
 def test_match_keywords_preserves_order_and_casing():
-    keywords = ["Kubernetes", "Python", "SQL"]
+    keywords = [
+        {"keyword": "Kubernetes", "priority": "preferred"},
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "required"},
+    ]
     matched, missing = match_keywords(keywords, "Python and SQL developer")
-    assert matched == ["Python", "SQL"]
-    assert missing == ["Kubernetes"]
+    assert matched == [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "required"},
+    ]
+    assert missing == [{"keyword": "Kubernetes", "priority": "preferred"}]
 
 
 def test_match_keywords_empty_list_returns_empty():

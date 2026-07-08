@@ -69,19 +69,55 @@ def test_score_resume_applies_semantic_rescaling(monkeypatch):
 def test_score_resume_weighted_arithmetic(monkeypatch):
     monkeypatch.setattr(resume_scorer, "get_embedding", lambda text, model=None: [1, 0, 0])
 
+    jd_keywords = [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "required"},
+        {"keyword": "Airflow", "priority": "preferred"},
+        {"keyword": "Kubernetes", "priority": "preferred"},
+    ]
+
     result = score_resume(
         resume_text="Python SQL developer with Airflow experience",
         experience_text="Built pipelines with Python and Airflow",
         jd_embedding=[1, 0, 0],
-        jd_keywords=["Python", "SQL", "Airflow", "Kubernetes"],
+        jd_keywords=jd_keywords,
     )
 
+    # total weight = 1.0 + 1.0 + 0.5 + 0.5 = 3.0
+    # resume matches Python, SQL, Airflow -> matched weight 1.0 + 1.0 + 0.5 = 2.5
+    # experience matches Python, Airflow -> matched weight 1.0 + 0.5 = 1.5
     assert result["semantic_score"] == 100
-    assert result["keyword_score"] == 75  # 3/4 matched in full resume text
-    assert result["experience_score"] == 50  # 2/4 (Python, Airflow) matched in experience text
-    assert result["combined_score"] == round(0.5 * 100 + 0.3 * 75 + 0.2 * 50)
-    assert set(result["matched_keywords"]) == {"Python", "SQL", "Airflow"}
-    assert result["missing_keywords"] == ["Kubernetes"]
+    assert result["keyword_score"] == 83  # round(2.5 / 3.0 * 100)
+    assert result["experience_score"] == 50  # round(1.5 / 3.0 * 100)
+    assert result["combined_score"] == round(0.5 * 100 + 0.3 * 83 + 0.2 * 50)
+    assert result["matched_keywords"] == [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "SQL", "priority": "required"},
+        {"keyword": "Airflow", "priority": "preferred"},
+    ]
+    assert result["missing_keywords"] == [{"keyword": "Kubernetes", "priority": "preferred"}]
+
+
+def test_weighted_keyword_coverage_required_worth_double_preferred():
+    all_keywords = [
+        {"keyword": "Python", "priority": "required"},
+        {"keyword": "Docker", "priority": "preferred"},
+        {"keyword": "Kubernetes", "priority": "preferred"},
+    ]
+    # total weight = 1.0 (required) + 0.5 + 0.5 (two preferred) = 2.0
+    required_only_matched = [{"keyword": "Python", "priority": "required"}]
+    preferred_only_matched = [{"keyword": "Docker", "priority": "preferred"}]
+
+    required_coverage = resume_scorer._weighted_keyword_coverage(
+        required_only_matched, all_keywords
+    )
+    preferred_coverage = resume_scorer._weighted_keyword_coverage(
+        preferred_only_matched, all_keywords
+    )
+
+    assert required_coverage == 50  # 1.0 / 2.0 * 100
+    assert preferred_coverage == 25  # 0.5 / 2.0 * 100
+    assert required_coverage == 2 * preferred_coverage
 
 
 def test_score_resume_output_contract_keys_and_types(monkeypatch):
@@ -91,7 +127,7 @@ def test_score_resume_output_contract_keys_and_types(monkeypatch):
         resume_text="Python developer",
         experience_text="Used Python daily",
         jd_embedding=[1, 0, 0],
-        jd_keywords=["Python"],
+        jd_keywords=[{"keyword": "Python", "priority": "required"}],
     )
 
     assert set(result.keys()) == EXPECTED_KEYS
@@ -129,7 +165,7 @@ def test_score_resume_calls_get_embedding_once_for_resume_only(monkeypatch):
         resume_text="Python developer",
         experience_text="Used Python daily",
         jd_embedding=[1, 0, 0],
-        jd_keywords=["Python"],
+        jd_keywords=[{"keyword": "Python", "priority": "required"}],
     )
 
     # Experience score is keyword-overlap based, not a second embedding call.

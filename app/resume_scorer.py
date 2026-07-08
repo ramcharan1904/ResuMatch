@@ -51,7 +51,7 @@ def score_resume(
     resume_text: str,
     experience_text: str,
     jd_embedding: list[float],
-    jd_keywords: list[str],
+    jd_keywords: list[dict],
 ) -> dict:
     """
     Weighted match score per CLAUDE.md's Scoring System:
@@ -67,10 +67,10 @@ def score_resume(
     semantic_score = round(_rescale_semantic_similarity(raw_similarity) * 100)
 
     matched, missing = match_keywords(jd_keywords, resume_text)
-    keyword_score = round(100 * len(matched) / len(jd_keywords)) if jd_keywords else 0
+    keyword_score = _weighted_keyword_coverage(matched, jd_keywords)
 
     experience_matched, _ = match_keywords(jd_keywords, experience_text)
-    experience_score = round(100 * len(experience_matched) / len(jd_keywords)) if jd_keywords else 0
+    experience_score = _weighted_keyword_coverage(experience_matched, jd_keywords)
 
     combined_score = round(0.5 * semantic_score + 0.3 * keyword_score + 0.2 * experience_score)
 
@@ -82,3 +82,18 @@ def score_resume(
         "matched_keywords": matched,
         "missing_keywords": missing,
     }
+
+_PRIORITY_WEIGHTS = {"required": 1.0, "preferred": 0.5}
+def _weighted_keyword_coverage(matched_keywords: list[dict], jd_keywords: list[dict]) -> int:
+    """calculate weighted keyword coverage score based on matched keywords and total keywords"""
+    total_weight = sum(_PRIORITY_WEIGHTS[k["priority"]] for k in jd_keywords)
+    if total_weight == 0.0:
+        return 0
+    matched_weight = sum(_PRIORITY_WEIGHTS[k["priority"]] for k in matched_keywords)
+
+    return round(matched_weight / total_weight * 100)
+    
+    
+    
+   
+   
