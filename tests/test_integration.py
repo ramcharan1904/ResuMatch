@@ -7,6 +7,7 @@ import resume_editor
 import resume_parser
 import resume_scorer
 import skill_matcher
+from skill_matcher import ExtractedKeyword, KeywordExtraction
 
 RESUME_TEXT = """SUMMARY
 Backend engineer.
@@ -60,7 +61,13 @@ def test_full_flow_respects_api_budget(monkeypatch):
 
     def fake_keyword_invoke(inputs):
         keyword_calls.append(inputs)
-        return ["Python", "SQL", "Airflow"]
+        return KeywordExtraction(
+            keywords=[
+                ExtractedKeyword(keyword="Python", priority="required"),
+                ExtractedKeyword(keyword="SQL", priority="required"),
+                ExtractedKeyword(keyword="Airflow", priority="preferred"),
+            ]
+        )
 
     monkeypatch.setattr(skill_matcher, "_chain", SimpleNamespace(invoke=fake_keyword_invoke))
 
@@ -111,4 +118,5 @@ def test_full_flow_respects_api_budget(monkeypatch):
     assert len(tailor_calls) == 1
 
     assert before_score["combined_score"] <= after_score["combined_score"]
-    assert "Airflow" in after_score["matched_keywords"]
+    matched_after_keywords = [k["keyword"] for k in after_score["matched_keywords"]]
+    assert "Airflow" in matched_after_keywords
