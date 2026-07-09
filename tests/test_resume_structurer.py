@@ -71,10 +71,16 @@ def test_skills_returned_as_flat_lines():
     ]
 
 
+def test_summary_returned_as_flat_lines():
+    structured = structure_resume(RESUME_TEXT)
+    assert structured["summary"] == [
+        "Backend engineer with 4 years of experience building data pipelines."
+    ]
+
+
 def test_unmapped_sections_preserved_as_other_sections():
     structured = structure_resume(RESUME_TEXT)
     assert structured["other_sections"] == [
-        ("SUMMARY", ["Backend engineer with 4 years of experience building data pipelines."]),
         ("CERTIFICATIONS", ["AWS Certified Solutions Architect"]),
     ]
 
@@ -99,16 +105,87 @@ def test_empty_input_returns_empty_name():
     assert structured["contact"] == ""
 
 
-def test_entry_with_no_date_match_falls_back_to_unlabeled_bullets():
-    text = "WORK EXPERIENCE\nDid some things\nDid other things\n"
+def test_dateless_entry_first_line_becomes_heading():
+    text = (
+        "PROJECTS\n"
+        "ResuMatch | Python, Streamlit, OpenAI API\n"
+        "Built an LLM-powered resume-tailoring app that aligns resumes to job descriptions.\n"
+        "Hardened the service with a 68-test suite and retry logic on API failures.\n"
+    )
     structured = structure_resume(text)
-    assert structured["experience"] == [
+    assert structured["projects"] == [
         {
-            "heading": "",
+            "heading": "ResuMatch | Python, Streamlit, OpenAI API",
             "dates": "",
             "subheading": "",
-            "bullets": ["Did some things", "Did other things"],
+            "bullets": [
+                "Built an LLM-powered resume-tailoring app that aligns resumes to job "
+                "descriptions.",
+                "Hardened the service with a 68-test suite and retry logic on API failures.",
+            ],
         }
+    ]
+
+
+def test_multiple_dateless_entries_separated_by_blank_line():
+    text = (
+        "PROJECTS\n"
+        "ResuMatch | Python, Streamlit\n"
+        "Built an LLM-powered resume-tailoring app that aligns resumes to job descriptions.\n"
+        "\n"
+        "Northwind Expense | Next.js, Node\n"
+        "Built and deployed a full-stack expense-tracking application on Vercel.\n"
+    )
+    structured = structure_resume(text)
+    assert [entry["heading"] for entry in structured["projects"]] == [
+        "ResuMatch | Python, Streamlit",
+        "Northwind Expense | Next.js, Node",
+    ]
+    assert structured["projects"][0]["bullets"] == [
+        "Built an LLM-powered resume-tailoring app that aligns resumes to job descriptions."
+    ]
+    assert structured["projects"][1]["bullets"] == [
+        "Built and deployed a full-stack expense-tracking application on Vercel."
+    ]
+
+
+def test_summary_alias_headers_are_recognized():
+    for header in ("PROFESSIONAL SUMMARY", "CAREER SUMMARY", "PROFILE", "PROFILE SUMMARY"):
+        text = f"{header}\nBackend engineer with data pipeline experience.\n"
+        structured = structure_resume(text)
+        assert structured["summary"] == ["Backend engineer with data pipeline experience."]
+
+
+def test_skills_alias_headers_are_recognized():
+    for header in ("TECHNICAL SKILLS", "CORE SKILLS", "KEY SKILLS", "SKILLS SUMMARY"):
+        text = f"{header}\nLanguages: Python, SQL\n"
+        structured = structure_resume(text)
+        assert structured["skills"] == ["Languages: Python, SQL"]
+
+
+def test_marked_bullets_separate_dateless_entries_without_a_blank_line():
+    # Real resumes that consistently mark bullets with "-"/"*"/"•"/"·" often don't put a
+    # blank line between dateless entries either -- once an entry has a marked bullet, the next
+    # unmarked line must still be recognized as the next entry's heading.
+    text = (
+        "PROJECTS\n"
+        "ResuMatch - AI Resume Tailoring Tool https://github.com/example/ResuMatch\n"
+        "- Built an end-to-end agentic pipeline that scores resumes against job postings.\n"
+        "- Hardened for production with retry-with-backoff on API failures.\n"
+        "Wine Quality Prediction - End-to-End ML Pipeline https://github.com/example/Wine\n"
+        "- Built a production-ready ML pipeline with experiment tracking.\n"
+    )
+    structured = structure_resume(text)
+    assert [entry["heading"] for entry in structured["projects"]] == [
+        "ResuMatch - AI Resume Tailoring Tool https://github.com/example/ResuMatch",
+        "Wine Quality Prediction - End-to-End ML Pipeline https://github.com/example/Wine",
+    ]
+    assert structured["projects"][0]["bullets"] == [
+        "Built an end-to-end agentic pipeline that scores resumes against job postings.",
+        "Hardened for production with retry-with-backoff on API failures.",
+    ]
+    assert structured["projects"][1]["bullets"] == [
+        "Built a production-ready ML pipeline with experiment tracking."
     ]
 
 

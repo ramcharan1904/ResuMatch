@@ -2,6 +2,7 @@ from io import BytesIO
 
 import docx
 from resume_exporter import export_docx
+from resume_template import ResumeTemplate
 
 RESUME_TEXT = """John Doe
 john.doe@email.com | 555-123-4567
@@ -19,6 +20,9 @@ Languages: Python, SQL
 
 SUMMARY
 Backend engineer with data pipeline experience.
+
+CERTIFICATIONS
+AWS Certified Solutions Architect
 """
 
 
@@ -72,8 +76,20 @@ def test_skills_label_is_bold_rest_is_not():
 def test_unmapped_section_appended_with_header_and_bullets():
     doc = docx.Document(BytesIO(export_docx(RESUME_TEXT)))
     paragraph_texts = [p.text for p in doc.paragraphs]
+    certifications_index = paragraph_texts.index("CERTIFICATIONS")
+    assert paragraph_texts[certifications_index + 1] == "AWS Certified Solutions Architect"
+
+
+def test_summary_renders_as_single_paragraph_before_experience():
+    doc = docx.Document(BytesIO(export_docx(RESUME_TEXT)))
+    paragraph_texts = [p.text for p in doc.paragraphs]
     summary_index = paragraph_texts.index("SUMMARY")
-    assert paragraph_texts[summary_index + 1] == "Backend engineer with data pipeline experience."
+    experience_index = paragraph_texts.index("EXPERIENCE")
+    assert summary_index < experience_index
+
+    summary_paragraph = doc.paragraphs[summary_index + 1]
+    assert summary_paragraph.text == "Backend engineer with data pipeline experience."
+    assert summary_paragraph.style.name != "List Bullet"
 
 
 def test_missing_section_is_not_rendered():
@@ -92,3 +108,34 @@ def test_falls_back_to_plain_paragraphs_when_no_sections_found():
 def test_empty_input_produces_empty_document():
     doc = docx.Document(BytesIO(export_docx("")))
     assert len(doc.paragraphs) == 0
+
+
+def test_dateless_project_title_renders_bold():
+    text = (
+        "John Doe\n"
+        "john.doe@email.com\n"
+        "\n"
+        "PROJECTS\n"
+        "ResuMatch | Python, Streamlit\n"
+        "Built an LLM-powered resume-tailoring app that aligns resumes to job descriptions.\n"
+    )
+    doc = docx.Document(BytesIO(export_docx(text)))
+    heading_paragraph = next(p for p in doc.paragraphs if p.text == "ResuMatch | Python, Streamlit")
+    assert heading_paragraph.runs[0].bold is True
+
+
+def test_custom_template_changes_section_order_and_name_style():
+    custom = ResumeTemplate(
+        section_order=(
+            ("SKILLS", "skills"),
+            ("EXPERIENCE", "experience"),
+            ("PROJECTS", "projects"),
+            ("EDUCATION", "education"),
+        ),
+        name_bold=False,
+    )
+    doc = docx.Document(BytesIO(export_docx(RESUME_TEXT, template=custom)))
+    paragraph_texts = [p.text for p in doc.paragraphs]
+
+    assert paragraph_texts.index("SKILLS") < paragraph_texts.index("EXPERIENCE")
+    assert doc.paragraphs[0].runs[0].bold is False

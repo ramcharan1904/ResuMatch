@@ -17,6 +17,11 @@ from validators import truncate_to_token_limit, validate_upload
 RESUME_TOKEN_LIMIT = 6000
 JOB_DESC_TOKEN_LIMIT = 4000
 
+
+def _priority_badge(priority: str) -> str:
+    return "🔴" if priority == "required" else "🟡"
+
+
 load_dotenv()
 st.set_page_config(layout="wide")
 st.title("AI Resume Tailoring Assistant")
@@ -133,13 +138,21 @@ if st.session_state.jd_analyzed:
         st.progress(before["experience_score"] / 100)
 
     st.write("Matched Keywords")
-    st.write("  ".join(f"✅ {kw}" for kw in before["matched_keywords"]) or "—")
+    matched_line = "  ".join(
+        f"✅ {_priority_badge(k['priority'])} {k['keyword']}" for k in before["matched_keywords"]
+    )
+    st.write(matched_line or "—")
     st.write("Missing Keywords")
-    st.write("  ".join(f"❌ {kw}" for kw in before["missing_keywords"]) or "—")
+    missing_line = "  ".join(
+        f"❌ {_priority_badge(k['priority'])} {k['keyword']}" for k in before["missing_keywords"]
+    )
+    st.write(missing_line or "—")
 
+    missing_priority_by_keyword = {k["keyword"]: k["priority"] for k in before["missing_keywords"]}
     st.multiselect(
         "Select missing keywords to target",
-        options=before["missing_keywords"],
+        options=[k["keyword"] for k in before["missing_keywords"]],
+        format_func=lambda kw: f"{_priority_badge(missing_priority_by_keyword[kw])} {kw}",
         key="selected_keywords",
     )
 
@@ -200,18 +213,28 @@ if st.session_state.before_score and st.session_state.after_score:
         st.progress(after["experience_score"] / 100)
 
     st.write("Matched Keywords")
-    st.write("  ".join(f"✅ {kw}" for kw in after["matched_keywords"]) or "—")
+    matched_line = "  ".join(
+        f"✅ {_priority_badge(k['priority'])} {k['keyword']}" for k in after["matched_keywords"]
+    )
+    st.write(matched_line or "—")
     st.write("Missing Keywords")
-    st.write("  ".join(f"❌ {kw}" for kw in after["missing_keywords"]) or "—")
+    missing_line = "  ".join(
+        f"❌ {_priority_badge(k['priority'])} {k['keyword']}" for k in after["missing_keywords"]
+    )
+    st.write(missing_line or "—")
 
-    newly_added_keywords = sorted(set(after["matched_keywords"]) - set(before["matched_keywords"]))
+    before_matched_keywords = {k["keyword"] for k in before["matched_keywords"]}
+    newly_added_keywords = sorted(
+        (k for k in after["matched_keywords"] if k["keyword"] not in before_matched_keywords),
+        key=lambda k: k["keyword"],
+    )
     if newly_added_keywords:
         st.subheader("Keywords Added by Tailoring")
         st.caption(
             "Present in the job description, missing from your original resume, now included."
         )
         for kw in newly_added_keywords:
-            st.write(f"🆕 {kw}")
+            st.write(f"🆕 {_priority_badge(kw['priority'])} {kw['keyword']}")
 
     if st.session_state.jd_keywords:
         experience_matched_before, _ = match_keywords(
@@ -220,9 +243,10 @@ if st.session_state.before_score and st.session_state.after_score:
         experience_matched_after, _ = match_keywords(
             st.session_state.jd_keywords, st.session_state.tailored_experience_text
         )
-        newly_aligned_experience = sorted(
-            set(experience_matched_after) - set(experience_matched_before)
-        )
+        experience_matched_before_keywords = {k["keyword"] for k in experience_matched_before}
+        newly_aligned_experience = {
+            k["keyword"] for k in experience_matched_after
+        } - experience_matched_before_keywords
 
         st.subheader("Experience Alignment")
         st.caption("Job description keywords found specifically within your experience section.")
@@ -230,12 +254,12 @@ if st.session_state.before_score and st.session_state.after_score:
         with col_exp_before:
             st.write(f"Before ({len(experience_matched_before)} matched)")
             for kw in experience_matched_before:
-                st.write(f"• {kw}")
+                st.write(f"• {_priority_badge(kw['priority'])} {kw['keyword']}")
         with col_exp_after:
             st.write(f"After ({len(experience_matched_after)} matched)")
             for kw in experience_matched_after:
-                marker = "🆕" if kw in newly_aligned_experience else "•"
-                st.write(f"{marker} {kw}")
+                marker = "🆕" if kw["keyword"] in newly_aligned_experience else "•"
+                st.write(f"{marker} {_priority_badge(kw['priority'])} {kw['keyword']}")
 
     st.subheader("Updated Resume")
     st.caption(
@@ -246,7 +270,7 @@ if st.session_state.before_score and st.session_state.after_score:
         render_tailored_html(
             st.session_state.resume_text,
             st.session_state.tailored_resume,
-            st.session_state.jd_keywords or [],
+            [k["keyword"] for k in st.session_state.jd_keywords or []],
         ),
         unsafe_allow_html=True,
     )
