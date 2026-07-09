@@ -44,13 +44,14 @@ app/
   resume_diff.py           # Word-level diff + inline keyword highlighting for the preview
   resume_structurer.py     # Heuristic freeform-text -> structured resume fields
   resume_exporter.py       # Fixed-template DOCX export from structured fields
+  resume_template.py       # ResumeTemplate dataclass — styling knobs, decoupled from rendering
   validators.py            # Upload size/type checks, token-limit truncation
   retry.py                 # Exponential-backoff decorator for OpenAI 429s
   .env                     # Local API keys (never committed)
 .env.example               # Onboarding template for environment variables
 requirements.txt           # Pinned runtime dependencies
 requirements-dev.txt       # + pytest, pytest-mock, ruff, black (pinned)
-tests/                     # pytest suite — 67 tests, fully mocked, no real API calls
+tests/                     # pytest suite — 76 tests, fully mocked, no real API calls
 .github/workflows/ci.yml   # Lint + test on push/PR
 Dockerfile, .dockerignore  # Container definition
 CLAUDE.md                  # This document
@@ -116,8 +117,8 @@ keyword coverage and experience relevance as supporting signals.
 | Signal | Method | Weight |
 |---|---|---|
 | Semantic Score | Rescaled cosine similarity — full resume embedding vs. job description embedding | 50% |
-| Keyword Score | % of LLM-extracted job description keywords present anywhere in the resume | 30% |
-| Experience Score | % of the same JD keywords present specifically within the isolated experience section | 20% |
+| Keyword Score | Priority-weighted coverage of LLM-extracted job description keywords present anywhere in the resume | 30% |
+| Experience Score | Priority-weighted coverage of the same JD keywords present specifically within the isolated experience section | 20% |
 
 ```
 combined_score = (0.5 × semantic) + (0.3 × keyword) + (0.2 × experience)
@@ -142,14 +143,36 @@ derived calibration — worth revisiting if real usage shows scores clustering o
   "semantic_score": 68,
   "keyword_score": 84,
   "experience_score": 71,
-  "matched_keywords": ["Python", "SQL", "Airflow"],
-  "missing_keywords": ["Kubernetes", "dbt", "Spark"]
+  "matched_keywords": [
+    {"keyword": "Python", "priority": "required"},
+    {"keyword": "SQL", "priority": "required"},
+    {"keyword": "Airflow", "priority": "preferred"},
+  ],
+  "missing_keywords": [
+    {"keyword": "Kubernetes", "priority": "preferred"},
+    {"keyword": "dbt", "priority": "preferred"},
+    {"keyword": "Spark", "priority": "required"},
+  ],
 }
 ```
 
-**Keyword extraction** is LLM-driven (single GPT-4o-mini call against the job description) rather
-than a static skills list, so it generalizes across roles instead of being tuned to one domain.
-Matching against the resume uses case-insensitive substring search (`skill_matcher.match_keywords`).
+**Keyword extraction** is LLM-driven (`ChatOpenAI.with_structured_output`, single GPT-4o-mini call
+against the job description) rather than a static skills list, so it generalizes across roles
+instead of being tuned to one domain. Structured output — not free-text parsing — also lets each
+extracted keyword carry a `priority`: `"required"` if the JD uses mandatory language ("must have",
+"required", "5+ years of X"), `"preferred"` for bonus/nice-to-have language or when the posting
+doesn't clearly signal either way (`skill_matcher.ExtractedKeyword`/`KeywordExtraction`). Matching
+against the resume uses case-insensitive substring search (`skill_matcher.match_keywords`), which
+preserves each keyword's priority through the matched/missing split.
+
+**Keyword priority weighting.** A resume missing a hard requirement ("required") costs more than
+one missing a bonus skill ("preferred") — `resume_scorer._PRIORITY_WEIGHTS` assigns `required =
+1.0` and `preferred = 0.5`, a 2:1 ratio. Both `keyword_score` and `experience_score` are computed
+by `resume_scorer._weighted_keyword_coverage`: sum the weights of matched keywords, divide by the
+sum of weights of all JD keywords, ×100 — so two missing `preferred` keywords cost the resume the
+same as one missing `required` keyword. Like the semantic calibration anchors above, the 2:1 ratio
+is a heuristic, not a statistically derived weighting — worth revisiting if real usage shows it
+under- or over-penalizing missing requirements.
 
 **Experience scoring** measures relevance of the candidate's experience section to the role by
 reusing the same JD-keyword list already extracted for the keyword score, scoped to just the text
@@ -204,14 +227,37 @@ instructions, not to retrieve from a corpus.
 
 ## Resume Export
 
-The downloadable `.docx` always renders into a **fixed template** — a centered bold name and
-contact line, then `EXPERIENCE` / `PROJECTS` / `EDUCATION` / `SKILLS` sections (only those with
-content, in that order), regardless of how the originally uploaded resume was formatted. Each
+The downloadable `.docx` always renders into a **fixed template** — a centered name and contact
+line, then `SUMMARY` / `EXPERIENCE` / `PROJECTS` / `EDUCATION` / `SKILLS` sections (only those
+with content, in that order), regardless of how the originally uploaded resume was formatted. Each
 experience/project/education entry renders as a bold heading with the date range right-aligned
 on the same line (`resume_exporter._add_heading_dates_paragraph`, via a right tab stop), an
-italic subheading line when one is detected, and bulleted achievements. Any section from the
-original resume that doesn't map to those four (e.g. Certifications) is appended at the end in a
-simple bulleted format, so nothing from the original resume is silently dropped.
+italic subheading line when one is detected, and bulleted achievements. `SUMMARY` renders
+differently from the other four — as a single flowing paragraph, not bullets — matching how a
+resume summary/objective actually reads. Any section from the original resume that doesn't map to
+those five (e.g. Certifications) is appended at the end in a simple bulleted format, so nothing
+from the original resume is silently dropped.
+
+**Styling is decoupled from rendering logic.** Every visual decision — font, name/header sizes,
+bold/small-caps choices, section order, page margins, the date tab-stop position — lives in
+`resume_template.ResumeTemplate`, a frozen dataclass, not hardcoded inside `resume_exporter.py`'s
+rendering functions. `export_docx(tailored_text, template=DEFAULT_TEMPLATE)` takes the template as
+an optional argument; changing the look is a new `ResumeTemplate(...)` value passed in, not a
+rendering-code change. The current `DEFAULT_TEMPLATE` recreates the look of a classic single-column
+LaTeX resume template ("Jake's Resume" style) as closely as `python-docx` reasonably allows:
+Georgia font, small-caps centered name, small-caps non-bold section headers, 0.5" margins.
+
+**Known simplifications versus the LaTeX reference design** (would require real content-model
+changes, not just styling, so intentionally not attempted):
+- No thin rule under section headers — `python-docx` has no native paragraph-border API; adding
+  one needs low-level OOXML manipulation, skipped to avoid a nonstandard code pattern for a subtle
+  visual detail.
+- No hyperlinked, individually-parsed contact fields (phone/email/linkedin/github as separate
+  clickable pieces) — `contact` stays one plain text line.
+- No two-column tabular org/location line under an experience entry — `subheading` stays one
+  string, styled italic as a whole.
+- No inline bold-project-name + italic-tech-stack formatting within a single heading line — the
+  whole heading run is bold or not, no partial styling.
 
 `resume_structurer.structure_resume` extracts this structure **heuristically** — no extra LLM
 call, no persistence:
@@ -219,13 +265,24 @@ call, no persistence:
   digit, else empty.
 - A regex (`_DATE_RANGE_RE`) finds date ranges (`"2021-2024"`, `"Aug. 2019 – Present"`, etc.);
   the line containing one starts a new entry, split into heading (everything else on that line)
-  and dates.
-- The line immediately after a date-header becomes the entry's *subheading* only if it's short
+  and dates. Entries without a date range are recognized too — e.g. a Projects entry formatted as
+  `"Name | Tech Stack"` with no dates at all: the first line of the section, or the first
+  non-bullet-looking line after a blank-line gap, becomes that entry's (dateless) heading. This is
+  what makes project titles render bold even when the project has no date range — previously,
+  `_parse_entries` only recognized a date match as an entry boundary, so a dateless project's title
+  fell through and rendered as a plain bullet like everything else. A second, stronger signal
+  covers the common case where marked bullets ("-", "*", "•", "·") are used but no blank line
+  separates entries: once an entry has collected at least one marked bullet, the next
+  *unmarked* line is treated as the next entry's heading, since the marker switching off is
+  itself a reliable boundary even with no blank-line gap.
+- The line immediately after any heading (dated or dateless) becomes the entry's *subheading* only if it's short
   (≤40 chars) and doesn't end in sentence punctuation (e.g. "Remote") — otherwise it's treated as
   bullet content. This distinction matters because LLM-tailored output writes achievements as
   flowing multi-sentence paragraphs on one line rather than one bullet per line; such lines are
   split back into individual bullets at sentence boundaries (`_split_into_sentences`) so the
   final document reads as a normal bulleted resume, not one long italic paragraph.
+- `SUMMARY` and `SKILLS` are both returned as flat lists of lines (no date-entry parsing) —
+  `SKILLS` renders as bold-label/plain-value lines, `SUMMARY` renders as one joined paragraph.
 
 Being heuristic, this **will misfire** on resumes formatted very differently than expected (dates
 embedded mid-bullet, no date range at all, non-English date formats). If `structure_resume` finds
@@ -248,9 +305,12 @@ chain = LLMChain(llm=llm, prompt=prompt)
 chain.run(...)
 ```
 
-Both `skill_matcher.py` (`prompt | llm | CommaSeparatedListOutputParser()`) and `resume_editor.py`
-(`prompt | llm | StrOutputParser()`) follow this today — no deprecated `LLMChain` remains anywhere
-in the codebase.
+`resume_editor.py` follows this with `prompt | llm | StrOutputParser()`. `skill_matcher.py` follows
+the same pipe convention but swaps the final stage for structured output —
+`prompt | llm.with_structured_output(KeywordExtraction)` — since the extraction result needs a
+typed `priority` field per keyword, not free text; parsing is baked into the structured-output
+stage, so there's no separate output-parser step. No deprecated `LLMChain` remains anywhere in the
+codebase.
 
 ---
 
@@ -399,8 +459,25 @@ pinned: false
   compressed into roughly a 0.15–0.55 range rather than the full 0–1 range a flat `×100` scale
   assumes; `resume_scorer._rescale_semantic_similarity` min-max rescales against those empirical
   anchors so meaningful tailoring improvements actually move the score.
-- **Fixed-template DOCX export** — the download always renders into the same structured layout
-  (name/contact, EXPERIENCE/PROJECTS/EDUCATION/SKILLS with bold headings + right-aligned dates +
-  bullets) regardless of the original resume's formatting; see Resume Export above.
+- **Fixed-template DOCX export, styling decoupled from rendering** — the download always renders
+  into the same structured layout (name/contact, SUMMARY/EXPERIENCE/PROJECTS/EDUCATION/SKILLS with
+  right-aligned dates + bullets) regardless of the original resume's formatting; every visual
+  choice lives in `resume_template.ResumeTemplate`, not hardcoded in `resume_exporter.py`, so the
+  look (currently a LaTeX-resume-inspired design) can change via a new template value alone. See
+  Resume Export above.
+- **Summary/Skills header aliases + dateless entries** — `resume_parser._SECTION_ALIASES`
+  recognizes "Professional Summary", "Career Summary", "Profile", and "Profile Summary" as
+  `SUMMARY` headers, and "Technical Skills", "Core Skills", "Key Skills", and "Skills Summary" as
+  `SKILLS` headers, not just the bare words; `resume_structurer._parse_entries` recognizes an
+  entry (bold heading) even with no date range, via a blank-line gap or a marked-bullet-to-unmarked
+  transition — so Projects entries formatted as `"Name | Tech Stack"` with no dates render with a
+  bold title instead of falling through as an unlabeled bullet, or getting silently absorbed into
+  whatever section preceded an unrecognized header.
+- **Required vs. preferred keyword weighting** — `skill_matcher.extract_keywords` uses structured
+  output to tag each JD keyword `"required"` or `"preferred"` based on how the posting phrases it,
+  instead of treating every keyword equally; `keyword_score`/`experience_score` weight matches 2:1
+  in favor of required terms (`resume_scorer._weighted_keyword_coverage`); `main.py` surfaces the
+  priority as a 🔴/🟡 badge in the multiselect and matched/missing keyword lists. See Scoring
+  System above.
 
 All items from the original roadmap (CLAUDE.md issues #3–#11) are now implemented.
